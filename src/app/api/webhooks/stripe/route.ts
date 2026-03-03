@@ -1,0 +1,40 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { stripe } from '@/lib/stripe';
+import { supabase } from '@/lib/supabase/client'; // Replace with server side in actual prod
+import { headers } from 'next/headers';
+
+export async function POST(req: NextRequest) {
+  const body = await req.text();
+  const signature = (await headers()).get('stripe-signature');
+
+  if (!signature || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return NextResponse.json({ error: 'Missing signature or webhook secret' }, { status: 400 });
+  }
+
+  try {
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+
+    if (event.type === 'payment_intent.succeeded') {
+      const paymentIntent = event.data.object;
+      const orderId = paymentIntent.metadata.orderId;
+
+      // Update order in Supabase
+      /* 
+      await supabase
+        .from('orders')
+        .update({ status: 'completed', transaction_id: paymentIntent.id })
+        .eq('id', orderId);
+      */
+      console.log(`Payment successful for order: ${orderId}`);
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (err: any) {
+    console.error('Stripe Webhook Error:', err);
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
+}
