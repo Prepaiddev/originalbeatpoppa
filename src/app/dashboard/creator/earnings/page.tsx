@@ -1,7 +1,7 @@
 "use client";
 
 import Header from '@/components/Header';
-import { DollarSign, TrendingUp, Calendar, ArrowUpRight, X, CheckCircle, CreditCard, Send } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, ArrowUpRight, X, CheckCircle, CreditCard, Send, Loader2, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore, formatPrice } from '@/store/useUIStore';
 import { useEffect, useState } from 'react';
@@ -15,14 +15,15 @@ export default function EarningsPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [payoutModal, setPayoutModal] = useState(false);
-  const [payoutMethod, setPayoutMethod] = useState('paypal');
-  const [payoutDetails, setPayoutDetails] = useState('');
+  const [payoutMethod, setPayoutMethod] = useState(profile?.payout_method || 'paypal');
+  const [payoutDetails, setPayoutDetails] = useState(profile?.payout_details || '');
+  const [isEditingPayment, setIsEditingPayment] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [statusModal, setStatusModal] = useState({
-    isOpen: false,
-    type: 'success' as 'success' | 'error' | 'info' | 'warning' | 'loading' | 'auth',
-    title: '',
-    message: ''
+  const [statusModal, setStatusModal] = useState({ 
+    isOpen: false, 
+    type: 'success' as 'success' | 'error' | 'loading' | 'auth',
+    title: '', 
+    message: '' 
   });
 
   useEffect(() => {
@@ -87,6 +88,40 @@ export default function EarningsPage() {
 
     fetchEarnings();
   }, [user?.id]);
+
+  const handleSavePaymentSettings = async () => {
+    if (!user) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          payout_method: payoutMethod,
+          payout_details: payoutDetails
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setStatusModal({
+        isOpen: true,
+        type: 'success',
+        title: 'Settings Saved',
+        message: 'Your payment details have been updated.'
+      });
+      setIsEditingPayment(false);
+    } catch (err: any) {
+      console.error('Save payment error:', err);
+      setStatusModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Save Failed',
+        message: err.message || 'Failed to update payment details.'
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleRequestPayout = async () => {
     if (!user || earnings.available < 50) return;
@@ -224,6 +259,81 @@ export default function EarningsPage() {
               Funds clear in 2-3 days
             </span>
           </div>
+        </div>
+
+        {/* Payment Settings Section */}
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-8 mb-8">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-2xl text-primary">
+                <CreditCard size={24} />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tight">Payment Details</h3>
+                <p className="text-zinc-500 text-sm font-medium">How you receive your payouts</p>
+              </div>
+            </div>
+            {!isEditingPayment ? (
+              <button 
+                onClick={() => setIsEditingPayment(true)}
+                className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-widest text-xs rounded-xl transition-all"
+              >
+                Edit Details
+              </button>
+            ) : (
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsEditingPayment(false)}
+                  className="px-6 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-black uppercase tracking-widest text-xs rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSavePaymentSettings}
+                  disabled={submitting}
+                  className="px-6 py-3 bg-primary hover:bg-rose-600 text-white font-black uppercase tracking-widest text-xs rounded-xl transition-all flex items-center gap-2"
+                >
+                  {submitting ? <Loader2 className="animate-spin" size={14} /> : <Send size={14} />}
+                  Save Details
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-3">
+              <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Payout Method</label>
+              <select 
+                disabled={!isEditingPayment}
+                value={payoutMethod}
+                onChange={(e) => setPayoutMethod(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-4 px-5 focus:outline-none focus:border-primary transition-all text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="paypal">PayPal</option>
+                <option value="bank">Bank Transfer</option>
+                <option value="paystack">Paystack</option>
+                <option value="stripe">Stripe Connect</option>
+              </select>
+            </div>
+            <div className="space-y-3">
+              <label className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500 ml-1">Payout Details</label>
+              <input 
+                disabled={!isEditingPayment}
+                type="text"
+                value={payoutDetails}
+                onChange={(e) => setPayoutDetails(e.target.value)}
+                placeholder={payoutMethod === 'paypal' ? 'PayPal Email Address' : 'Account Number / Detail'}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-4 px-5 focus:outline-none focus:border-primary transition-all text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
+          </div>
+          
+          {!isEditingPayment && !payoutDetails && (
+            <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl flex items-center gap-4 text-yellow-500">
+              <AlertCircle size={20} />
+              <p className="text-sm font-bold uppercase tracking-wide">Please set up your payment details to receive payouts.</p>
+            </div>
+          )}
         </div>
 
         {/* Transaction History */}

@@ -27,7 +27,7 @@ export default function MyBeatsPage() {
       try {
         const { data, error } = await supabase
           .from('beats')
-          .select('*')
+          .select('*, order_items(count)')
           .eq('artist_id', user!.id)
           .order('created_at', { ascending: false });
 
@@ -45,7 +45,8 @@ export default function MyBeatsPage() {
             key: b.key,
             genre: b.genre,
             tags: b.tags,
-            plays: b.plays
+            plays: b.plays,
+            sales: b.order_items?.[0]?.count || 0
           })));
         }
       } catch (error) {
@@ -163,7 +164,7 @@ export default function MyBeatsPage() {
                     </td>
                     <td className="px-6 py-2 md:py-4 flex justify-between md:table-cell">
                       <span className="md:hidden text-zinc-500">Sales:</span>
-                      <span className="text-zinc-400">-</span>
+                      <span className="text-zinc-400">{beat.sales || 0}</span>
                     </td>
                     <td className="px-6 py-4 text-right flex justify-end gap-2">
                       <button 

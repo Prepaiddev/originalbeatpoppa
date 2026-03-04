@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
-export default function VerifyPaymentPage() {
+function VerifyPaymentContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const provider = searchParams.get('provider');
@@ -81,5 +81,18 @@ export default function VerifyPaymentPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function VerifyPaymentPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 text-center">
+        <Loader2 size={48} className="animate-spin text-primary mx-auto" />
+        <h1 className="text-2xl font-bold text-white mt-4">Initializing verification...</h1>
+      </div>
+    }>
+      <VerifyPaymentContent />
+    </Suspense>
   );
 }

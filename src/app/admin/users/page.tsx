@@ -1,8 +1,9 @@
 "use client";
 
 import Header from '@/components/Header';
-import { Search, MoreHorizontal, ShieldAlert, CheckCircle, UserPlus, Filter, Mail, Trash2, ShieldCheck, UserCog, ExternalLink, User } from 'lucide-react';
+import { Search, MoreHorizontal, ShieldAlert, CheckCircle, UserPlus, Filter, Mail, Trash2, ShieldCheck, UserCog, ExternalLink, User, CreditCard } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import StatusModal from '@/components/StatusModal';
 import ConfirmationModal from '@/components/ConfirmationModal';
@@ -12,8 +13,12 @@ import VerifiedCheck from '@/components/VerifiedCheck';
 import { logActivity } from '@/lib/supabase/audit';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
+import { useAuthStore } from '@/store/useAuthStore';
+
 export default function AdminUsersPage() {
+  const router = useRouter();
   const { general } = useSettingsStore();
+  const { impersonateUser } = useAuthStore();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,13 +40,21 @@ export default function AdminUsersPage() {
     title: string;
     message: string;
     onConfirm: () => void;
-    variant: 'danger' | 'warning' | 'info';
+    variant: 'danger' | 'primary';
   }>({
     isOpen: false,
     title: '',
     message: '',
     onConfirm: () => {},
-    variant: 'info'
+    variant: 'primary'
+  });
+
+  const [paymentModal, setPaymentModal] = useState<{
+    isOpen: boolean;
+    user: any | null;
+  }>({
+    isOpen: false,
+    user: null
   });
 
   useEffect(() => {
@@ -122,7 +135,7 @@ export default function AdminUsersPage() {
       isOpen: true,
       title: isBanning ? 'Ban User' : 'Unban User',
       message: `Are you sure you want to ${isBanning ? 'ban' : 'unban'} ${user.display_name || user.username}? This will ${isBanning ? 'restrict' : 'restore'} their access to the platform.`,
-      variant: isBanning ? 'danger' : 'info',
+      variant: isBanning ? 'danger' : 'primary',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         try {
@@ -223,6 +236,56 @@ export default function AdminUsersPage() {
         }
       }
     });
+  };
+
+  const handleToggleVerified = async (user: any) => {
+    const newStatus = !user.is_verified;
+    try {
+      setStatusModal({
+        isOpen: true,
+        type: 'loading',
+        title: newStatus ? 'Verifying User' : 'Removing Verification',
+        message: `Updating verification status for ${user.display_name || user.username}...`
+      });
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_verified: newStatus })
+        .eq('id', user.id);
+      
+      if (error) throw error;
+      
+      // Log activity
+      await logActivity('settings_updated', 'user_verification', user.id, { is_verified: newStatus });
+      
+      setUsers(users.map(u => u.id === user.id ? { ...u, is_verified: newStatus } : u));
+      
+      // Notify user
+      if (newStatus) {
+        await supabase.from('notifications').insert({
+          user_id: user.id,
+          type: 'verification_request',
+          title: 'Verification Approved',
+          message: 'Your account has been verified! You now have the verified badge on your profile.',
+        });
+      }
+
+      setStatusModal({
+        isOpen: true,
+        type: 'success',
+        title: 'Status Updated',
+        message: `User verification has been ${newStatus ? 'approved' : 'removed'}.`
+      });
+      setTimeout(() => setStatusModal(prev => ({ ...prev, isOpen: false })), 2000);
+    } catch (error: any) {
+      console.error('Error updating verification:', error);
+      setStatusModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Update Failed',
+        message: error.message || 'Failed to update verification status.'
+      });
+    }
   };
 
   return (
@@ -373,7 +436,35 @@ export default function AdminUsersPage() {
                         </p>
                       </td>
                       <td className="px-8 py-6">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2 pr-4">
+                          <button 
+                            onClick={() => handleToggleVerified(user)}
+                            className={`p-2.5 rounded-xl transition-all group/btn ${user.is_verified ? 'bg-primary text-black' : 'bg-zinc-800 hover:bg-primary hover:text-black text-zinc-400'}`} 
+                            title={user.is_verified ? "Unverify User" : "Verify User"}
+                          >
+                            <ShieldCheck size={16} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to impersonate ${user.display_name || user.username}? You will be logged in as them.`)) {
+                                impersonateUser(user.id);
+                                router.push('/');
+                              }
+                            }}
+                            className="p-2.5 bg-zinc-800 hover:bg-primary hover:text-black rounded-xl text-zinc-400 transition-all group/btn" 
+                            title="Impersonate User"
+                          >
+                            <UserCog size={16} />
+                          </button>
+                          {user.role === 'creator' && (
+                            <button 
+                              onClick={() => setPaymentModal({ isOpen: true, user })}
+                              className="p-2.5 bg-zinc-800 hover:bg-primary hover:text-black rounded-xl text-zinc-400 transition-all group/btn" 
+                              title="View Payout Info"
+                            >
+                              <CreditCard size={16} />
+                            </button>
+                          )}
                           <Link 
                             href={user.role === 'creator' ? `/creator/${user.username}` : `/profile/${user.username || user.id}`}
                             className="p-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-zinc-400 transition-all" 
@@ -423,6 +514,49 @@ export default function AdminUsersPage() {
           </div>
         </div>
       </main>
+      
+      {/* Payout Details Modal */}
+      {paymentModal.isOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={() => setPaymentModal({ isOpen: false, user: null })} />
+          <div className="relative bg-zinc-900 border border-zinc-800 rounded-[32px] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setPaymentModal({ isOpen: false, user: null })} 
+              className="absolute top-6 right-6 text-zinc-500 hover:text-white transition-colors"
+            >
+              <Trash2 size={20} />
+            </button>
+            
+            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary mb-6">
+              <CreditCard size={32} />
+            </div>
+            
+            <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Creator Payout Info</h2>
+            <p className="text-zinc-500 text-sm mb-8 font-medium">Payment details for {paymentModal.user?.display_name || paymentModal.user?.username}</p>
+            
+            <div className="space-y-6">
+              <div className="bg-zinc-950/50 border border-zinc-800 rounded-2xl p-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-600 mb-2">Payout Method</p>
+                <p className="text-white font-black uppercase tracking-widest">{paymentModal.user?.payout_method || 'Not Configured'}</p>
+              </div>
+              
+              <div className="bg-zinc-950/50 border border-zinc-800 rounded-2xl p-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-600 mb-2">Payout Details</p>
+                <div className="text-white font-medium break-all whitespace-pre-wrap">
+                  {paymentModal.user?.payout_details || 'No details provided yet.'}
+                </div>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setPaymentModal({ isOpen: false, user: null })}
+              className="w-full mt-8 bg-zinc-800 hover:bg-zinc-700 text-white font-black py-4 rounded-2xl transition-all uppercase tracking-widest text-xs"
+            >
+              Close Details
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

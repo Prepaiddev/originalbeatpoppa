@@ -30,7 +30,8 @@ export default function MyOrdersPage() {
           .select(`
             *,
             orders!inner(id, created_at, status),
-            beats(id, title, cover_url, audio_url, profiles(display_name))
+            beats(id, title, cover_url, audio_url, profiles(display_name)),
+            bundles(id, title, cover_url, creator_id, profiles:creator_id(display_name))
           `)
           .eq('orders.buyer_id', user.id)
           .order('created_at', { ascending: false, foreignTable: 'orders' });
@@ -85,70 +86,70 @@ export default function MyOrdersPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {orders.map((item) => (
-              <div key={item.id} className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex flex-col md:flex-row items-center gap-6 group hover:border-zinc-700 transition-colors">
-                <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0 shadow-lg">
-                  <Image 
-                    src={item.beats?.cover_url || "https://placehold.co/100x100"} 
-                    alt={item.beats?.title || "Beat"} 
-                    fill 
-                    className="object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                </div>
-                
-                <div className="flex-1 text-center md:text-left min-w-0 w-full">
-                  <h3 className="font-bold text-white text-lg truncate">{item.beats?.title}</h3>
-                  <p className="text-zinc-400 mb-2">{item.beats?.profiles?.display_name || "Producer"}</p>
+            {orders.map((item) => {
+              const isBundle = !!item.bundle_id;
+              const title = isBundle ? item.bundles?.title : item.beats?.title;
+              const coverUrl = isBundle ? item.bundles?.cover_url : item.beats?.cover_url;
+              const artist = isBundle ? (item.bundles?.profiles?.display_name) : (item.beats?.profiles?.display_name);
+
+              return (
+                <div key={item.id} className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex flex-col md:flex-row items-center gap-6 group hover:border-zinc-700 transition-colors">
+                  <div className="relative w-24 h-24 rounded-xl overflow-hidden bg-zinc-800 flex-shrink-0 shadow-lg">
+                    <Image 
+                      src={coverUrl || "https://images.unsplash.com/photo-1514525253440-b393452e8d26?q=80&w=400&auto=format&fit=crop"} 
+                      alt={title || "Item"} 
+                      fill 
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    {isBundle && (
+                      <div className="absolute top-2 left-2 bg-primary text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest">
+                        Bundle
+                      </div>
+                    )}
+                  </div>
                   
-                  <div className="flex flex-wrap justify-center md:justify-start gap-3">
-                     <span className="px-3 py-1 bg-zinc-800 rounded-md text-xs font-bold text-zinc-300 uppercase tracking-wider border border-zinc-700">
-                       {item.license_type} License
-                     </span>
-                     <span className="px-3 py-1 bg-green-900/20 text-green-500 border border-green-500/20 rounded-md text-xs font-bold uppercase tracking-wider">
-                       Paid {formatPrice(item.price, currency, exchangeRates)}
-                     </span>
-                     <span className="text-xs text-zinc-500 flex items-center">
-                       {new Date(item.orders.created_at).toLocaleDateString()}
-                     </span>
+                  <div className="flex-1 text-center md:text-left min-w-0 w-full">
+                    <h3 className="font-bold text-white text-lg truncate">{title}</h3>
+                    <p className="text-zinc-500 text-sm mb-2">{artist || 'Unknown Artist'}</p>
+                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs text-zinc-400">
+                      <span className="flex items-center gap-1">
+                        <ShoppingBag size={14} className="text-zinc-600" />
+                        Purchased {new Date(item.orders.created_at).toLocaleDateString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <FileCheck size={14} className="text-zinc-600" />
+                        {isBundle ? 'Full Pack License' : `${item.license_type} License`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto justify-center">
+                    {!isBundle && (
+                      <button 
+                        onClick={() => setReviewModal({ isOpen: true, beatId: item.beat_id, beatTitle: title })}
+                        className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Star size={16} />
+                        Review
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => handleDownloadLicense(item)}
+                      className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Download size={16} />
+                      License
+                    </button>
+                    <Link 
+                      href={isBundle ? `/bundle/${item.bundle_id}` : `/beat/${item.beat_id}`}
+                      className="flex-1 md:flex-none px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
+                    >
+                      {isBundle ? 'View Pack' : 'View Beat'}
+                    </Link>
                   </div>
                 </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch gap-3 w-full md:w-auto">
-                  <a 
-                    href={item.beats?.audio_url} 
-                    download
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-bold shadow-lg shadow-primary/20"
-                  >
-                    <Download size={16} />
-                    Download
-                  </a>
-                  
-                  <button 
-                    onClick={() => handleDownloadLicense(item)}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors text-sm font-bold"
-                  >
-                    <FileCheck size={16} />
-                    License
-                  </button>
-                  
-                  <button 
-                    onClick={() => handleViewInvoice(item.orders.id)}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 hover:text-white transition-colors text-sm font-bold"
-                  >
-                    <FileText size={16} />
-                    Invoice
-                  </button>
-
-                  <button 
-                    onClick={() => setReviewModal({ isOpen: true, beatId: item.beats.id, beatTitle: item.beats.title })}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 rounded-lg hover:bg-yellow-500 hover:text-black transition-colors text-sm font-bold"
-                  >
-                    <Star size={16} />
-                    Leave Review
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

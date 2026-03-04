@@ -52,7 +52,7 @@ export default function AdminPaymentSettingsPage() {
     ]
   });
 
-  const [newCurrency, setNewCurrency] = useState({ code: '', symbol: '', rate: '', name: '' });
+  const [newCurrency, setNewCurrency] = useState({ code: '', symbol: '', rate: '', name: '', region: '' });
 
   useEffect(() => {
     if (!authLoading && (!user || profile?.role !== 'admin')) {
@@ -152,11 +152,12 @@ export default function AdminPaymentSettingsPage() {
           code: newCurrency.code.toUpperCase(), 
           symbol: newCurrency.symbol,
           rate: parseFloat(newCurrency.rate),
-          name: newCurrency.name || newCurrency.code.toUpperCase()
+          name: newCurrency.name || newCurrency.code.toUpperCase(),
+          region: newCurrency.region || 'Global'
         }
       ]
     });
-    setNewCurrency({ code: '', symbol: '', rate: '', name: '' });
+    setNewCurrency({ code: '', symbol: '', rate: '', name: '', region: '' });
   };
 
   const removeCurrency = (code: string) => {
@@ -468,7 +469,7 @@ export default function AdminPaymentSettingsPage() {
 
                   <div className="mt-6 p-6 bg-zinc-950/50 rounded-[24px] border border-zinc-800 border-dashed">
                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4 ml-1">Add New Currency</p>
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="grid grid-cols-3 gap-3 mb-3">
                       <input 
                         type="text" 
                         placeholder="ISO CODE (USD)"
@@ -482,6 +483,13 @@ export default function AdminPaymentSettingsPage() {
                         placeholder="SYMBOL ($)"
                         value={newCurrency.symbol}
                         onChange={(e) => setNewCurrency({...newCurrency, symbol: e.target.value})}
+                        className="bg-zinc-900 border border-zinc-800 rounded-xl py-3 px-4 text-xs font-bold text-white outline-none focus:border-primary transition-all"
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="REGION (Global)"
+                        value={newCurrency.region}
+                        onChange={(e) => setNewCurrency({...newCurrency, region: e.target.value})}
                         className="bg-zinc-900 border border-zinc-800 rounded-xl py-3 px-4 text-xs font-bold text-white outline-none focus:border-primary transition-all"
                       />
                     </div>

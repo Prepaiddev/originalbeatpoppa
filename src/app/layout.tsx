@@ -9,6 +9,7 @@ import RealtimeMaintenance from "@/components/RealtimeMaintenance";
 import CurrencySelectionModal from "@/components/CurrencySelectionModal";
 import CurrencyInitializer from "@/components/CurrencyInitializer";
 import PromotionalBanner from "@/components/PromotionalBanner";
+import ScrollToTop from "@/components/ScrollToTop";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -76,6 +77,7 @@ export default function RootLayout({
         
         {/* Persistent Player & Navigation */}
         <>
+          <ScrollToTop />
           <AudioPlayer />
           <BottomNav />
         </>

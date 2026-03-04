@@ -4,7 +4,9 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase credentials missing! Check .env.local file. Falling back to placeholders which will cause network errors.');
+  console.error('CRITICAL: Supabase credentials missing in .env.local!');
+  console.warn('Current URL:', supabaseUrl);
+  console.warn('Current Key:', supabaseAnonKey ? 'Present (Hidden)' : 'Missing');
 }
 
 // Create a client with placeholders if env vars are missing to prevent crash

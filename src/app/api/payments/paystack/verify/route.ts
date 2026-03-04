@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { paystack } from '@/lib/paystack';
-import { supabase } from '@/lib/supabase/client'; // Replace with server side in actual prod
+import { supabase } from '@/lib/supabase/client';
+import { OrderService } from '@/lib/services/OrderService';
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,14 +12,15 @@ export async function POST(req: NextRequest) {
     if (data.status && data.data.status === 'success') {
       const orderId = data.data.metadata.orderId;
 
-      // Update order status in Supabase (we'd use service role here for production)
-      // This is for demonstration. Use webhook as the source of truth for security
-      /* 
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: 'completed', transaction_id: reference })
-        .eq('id', orderId);
-      */
+      if (orderId) {
+        const orderService = OrderService.getInstance();
+        const success = await orderService.completeOrder(orderId, reference);
+        if (success) {
+          console.log(`Order ${orderId} completed successfully via Paystack.`);
+        } else {
+          console.error(`Failed to complete order ${orderId} via Paystack.`);
+        }
+      }
 
       return NextResponse.json({
         status: 'success',

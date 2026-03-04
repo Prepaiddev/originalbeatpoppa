@@ -73,30 +73,33 @@ export const useUIStore = create<UIState>((set) => ({
       if (error) {
         if (error.message === 'Failed to fetch') {
           console.warn('Network connection issue fetching exchange rates. Check your internet or ad-blocker.');
-        } else {
+        } else if (error.code !== 'PGRST116') {
           console.error('Error fetching exchange rates:', error.message || error);
         }
         return;
       }
-      
+
       if (data?.value?.currencies) {
-        const rates: any = {};
-        data.value.currencies.forEach((curr: any) => {
-          rates[curr.code] = curr.rate;
+        const rates: Record<string, number> = {};
+        data.value.currencies.forEach((c: any) => {
+          rates[c.code] = c.rate;
         });
         set({ exchangeRates: rates });
+      } else {
+        console.log('No exchange rates found in platform_settings, using defaults');
       }
     } catch (error: any) {
-      if (error?.message === 'Failed to fetch') {
+      if (error.message === 'Failed to fetch') {
         console.warn('Network connection issue fetching exchange rates. Check your internet or ad-blocker.');
       } else {
-        console.error('Error fetching exchange rates:', error?.message || error);
+        console.error('Error in fetchExchangeRates:', error);
       }
     }
   }
 }));
 
-export const formatPrice = (priceInUSD: number, currency: string, rates: Record<string, number>) => {
+export const formatPrice = (priceInUSD: number, currency: string, rates: Record<string, number>, showFree: boolean = false) => {
+  if (showFree && priceInUSD === 0) return 'Free';
   const rate = rates[currency] || 1;
   const convertedPrice = priceInUSD * rate;
   

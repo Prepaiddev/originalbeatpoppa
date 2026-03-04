@@ -14,6 +14,7 @@ function UploadBeatContent() {
   const searchParams = useSearchParams();
   const editId = searchParams.get('id');
   const { user, profile } = useAuthStore();
+  const { currency, exchangeRates } = useUIStore();
   const [accessDenied, setAccessDenied] = useState(false);
 
   // Check if user is a creator and enforce strictly

@@ -177,6 +177,30 @@ export default function Home() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-6">
+        <div className="relative w-24 h-24">
+          <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-primary rounded-full border-t-transparent animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-12 h-12 bg-primary/10 rounded-full animate-pulse flex items-center justify-center">
+              <div className="w-6 h-6 bg-primary rounded-full animate-ping" />
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <h2 className="text-white font-black uppercase tracking-[0.3em] text-sm animate-pulse">
+            Loading <span className="text-primary">Experience</span>
+          </h2>
+          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+            Preparing your authentic beats...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black">
       <Header />

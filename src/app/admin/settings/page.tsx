@@ -26,7 +26,18 @@ export default function AdminSettingsPage() {
     message: ''
   });
 
-  const settingsCategories = [
+  interface SettingCategory {
+    id: string;
+    title: string;
+    description: string;
+    icon: any;
+    href: string;
+    color: string;
+    bg: string;
+    comingSoon?: boolean;
+  }
+
+  const settingsCategories: SettingCategory[] = [
     {
       id: 'ui',
       title: 'UI Customization',

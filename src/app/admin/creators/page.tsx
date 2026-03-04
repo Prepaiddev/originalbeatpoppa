@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import Image from 'next/image';
 import StatusModal from '@/components/StatusModal';
+import VerifiedCheck from '@/components/VerifiedCheck';
 
 export default function AdminCreatorsPage() {
   const [verifications, setVerifications] = useState<any[]>([]);

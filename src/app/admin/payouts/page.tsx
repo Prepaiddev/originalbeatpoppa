@@ -19,7 +19,7 @@ export default function AdminPayoutsPage() {
   });
   const [statusModal, setStatusModal] = useState({ 
     isOpen: false, 
-    type: 'success' as 'success' | 'error' | 'info' | 'warning' | 'loading' | 'auth',
+    type: 'success' as 'success' | 'error' | 'loading' | 'auth',
     title: '', 
     message: '',
     onAction: undefined as (() => void) | undefined

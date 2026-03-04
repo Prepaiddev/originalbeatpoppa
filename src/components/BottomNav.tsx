@@ -6,6 +6,7 @@ import { Home, Search, Plus, ShoppingBag, User, LayoutDashboard } from 'lucide-r
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCartStore } from '@/store/useCartStore';
+import { getAdminLink } from '@/constants/admin';
 import clsx from 'clsx';
 
 export default function BottomNav() {
@@ -16,7 +17,7 @@ export default function BottomNav() {
 
   const userRole = profile?.role || 'buyer';
   const dashboardLink = userRole === 'admin' 
-    ? (adminPath ? `/${adminPath}` : '/admin') 
+    ? getAdminLink('/', adminPath) 
     : `/dashboard/${userRole}`;
 
   const navItems = [
@@ -32,7 +33,7 @@ export default function BottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-black/95 backdrop-blur-xl border-t border-zinc-900 h-[64px] sm:h-[72px] flex items-center justify-around z-50 px-2 pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 bg-black/95 backdrop-blur-xl border-t border-zinc-900 h-[60px] sm:h-[72px] flex items-center justify-around z-50 px-2 pb-safe">
       {navItems.map(({ href, label, icon: Icon, isCenter, badge }) => {
         const isActive = pathname === href;
         
@@ -41,12 +42,12 @@ export default function BottomNav() {
             <Link 
               key={label} 
               href={href} 
-              className="relative -top-4 sm:-top-6 flex flex-col items-center group"
+              className="relative -top-3 sm:-top-6 flex flex-col items-center group"
             >
-              <div className="w-12 h-12 sm:w-14 sm:h-14 bg-[#FF3B5C] rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,59,92,0.4)] transition-transform group-active:scale-90">
-                <Icon className="size-7 sm:size-8 text-white" strokeWidth={3} />
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#FF3B5C] rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,59,92,0.4)] transition-transform group-active:scale-90">
+                <Icon className="size-6 sm:size-8 text-white" strokeWidth={3} />
               </div>
-              <span className="text-[9px] sm:text-[10px] font-medium mt-1 text-zinc-400 group-hover:text-zinc-200 transition-colors">{label}</span>
+              <span className="text-[8px] sm:text-[10px] font-medium mt-1 text-zinc-400 group-hover:text-zinc-200 transition-colors">{label}</span>
             </Link>
           );
         }

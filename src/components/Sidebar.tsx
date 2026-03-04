@@ -123,6 +123,15 @@ export default function Sidebar() {
                           fill 
                           className="object-cover"
                         />
+                      ) : general?.logo_url ? (
+                        <div className="relative w-full h-full bg-zinc-900 p-2">
+                          <Image 
+                            src={general.logo_url} 
+                            alt="Default Profile" 
+                            fill 
+                            className="object-contain p-2 opacity-80"
+                          />
+                        </div>
                       ) : (
                         getInitials(profile?.display_name || user?.email || 'User')
                       )}

@@ -30,12 +30,18 @@
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-10px); }
   }
+
+  @keyframes slow-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
   
   --animate-music-bar-1: music-bar 0.5s ease-in-out infinite alternate;
   --animate-music-bar-2: music-bar 0.7s ease-in-out infinite alternate;
   --animate-music-bar-3: music-bar 0.6s ease-in-out infinite alternate;
   --animate-fade-in-up: fade-in-up 0.6s ease-out forwards;
   --animate-float: float 3s ease-in-out infinite;
+  --animate-slow-spin: slow-spin 60s linear infinite;
 }
 
 body {

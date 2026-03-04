@@ -636,19 +636,19 @@ export default function EditProfilePage() {
           </section>
 
           {/* Action Buttons */}
-          <div className="sticky bottom-8 left-0 right-0 z-40 px-4 md:px-0">
-            <div className="max-w-2xl mx-auto bg-black/80 backdrop-blur-xl border border-zinc-800 p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-4">
+          <div className="sticky bottom-20 md:bottom-8 left-0 right-0 z-40 px-4 md:px-0">
+            <div className="max-w-2xl mx-auto bg-black/90 backdrop-blur-xl border border-zinc-800 p-3 md:p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-4">
               <button 
                 type="button"
                 onClick={() => router.back()}
-                className="px-6 py-3 text-zinc-400 font-bold hover:text-white transition-colors"
+                className="px-4 md:px-6 py-2 md:py-3 text-zinc-400 font-bold hover:text-white transition-colors text-sm md:text-base"
               >
-                Discard Changes
+                Discard
               </button>
               <button 
                 type="submit"
                 disabled={loading || uploading || usernameStatus === 'taken'}
-                className="flex-1 md:flex-none px-12 py-3 bg-white text-black font-black rounded-xl hover:bg-zinc-200 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 md:flex-none px-8 md:px-12 py-2 md:py-3 bg-white text-black font-black rounded-xl hover:bg-zinc-200 transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm md:text-base"
               >
                 {loading ? (
                   <>

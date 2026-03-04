@@ -54,11 +54,12 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
       const unreadCount = data?.filter(n => !n.is_read).length || 0;
       set({ notifications: data || [], unreadCount });
-    } catch (error: any) {
-      if (error?.message === 'Failed to fetch') {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === 'Failed to fetch') {
         console.warn('Network connection issue fetching notifications. Check your internet or ad-blocker.');
       } else {
-        console.error('Error fetching notifications:', error?.message || error);
+        console.error('Error fetching notifications:', errorMessage);
       }
     } finally {
       set({ loading: false });

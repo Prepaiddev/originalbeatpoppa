@@ -41,7 +41,7 @@ export default function AdminContentManagementPage() {
 
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
-    type: 'success' as const,
+    type: 'success' as 'success' | 'error' | 'loading' | 'auth',
     title: '',
     message: ''
   });

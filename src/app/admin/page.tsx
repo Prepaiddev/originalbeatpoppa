@@ -1,7 +1,7 @@
 "use client";
 
 import Header from '@/components/Header';
-import { Users, Music, DollarSign, Activity, AlertTriangle, CreditCard, ArrowUpRight, TrendingUp, MessageSquare, Lock, CheckCircle } from 'lucide-react';
+import { Users, Music, DollarSign, Activity, AlertTriangle, CreditCard, ArrowUpRight, TrendingUp, MessageSquare, Lock, CheckCircle, Ticket, Mail } from 'lucide-react';
 import { useUIStore, formatPrice } from '@/store/useUIStore';
 import Link from 'next/link';
 import SeedDatabaseButton from '@/components/admin/SeedDatabaseButton';
@@ -224,12 +224,36 @@ export default function AdminDashboard() {
               <p className="text-zinc-500 text-sm leading-snug">Monitor platform performance and system audit logs.</p>
             </Link>
 
+            <Link href={getAdminLink('/coupons', adminPath)} className="group bg-zinc-900/50 border border-zinc-800 hover:border-primary/50 p-6 rounded-3xl transition-all hover:translate-y-[-4px]">
+              <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-primary group-hover:text-black transition-colors">
+                <Ticket size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white mb-1">Coupons</h3>
+              <p className="text-zinc-500 text-sm leading-snug">Create and manage discount codes for the shop.</p>
+            </Link>
+
             <Link href={getAdminLink('/settings', adminPath)} className="group bg-zinc-900/50 border border-zinc-800 hover:border-primary/50 p-6 rounded-3xl transition-all hover:translate-y-[-4px]">
               <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-primary group-hover:text-black transition-colors">
                 <CreditCard size={24} />
               </div>
               <h3 className="text-lg font-black text-white mb-1">Settings</h3>
               <p className="text-zinc-500 text-sm leading-snug">Configure commissions and platform gateways.</p>
+            </Link>
+
+            <Link href={getAdminLink('/reviews', adminPath)} className="group bg-zinc-900/50 border border-zinc-800 hover:border-primary/50 p-6 rounded-3xl transition-all hover:translate-y-[-4px]">
+              <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-primary group-hover:text-black transition-colors">
+                <MessageSquare size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white mb-1">Reviews</h3>
+              <p className="text-zinc-500 text-sm leading-snug">Moderate platform reviews and handle reported feedback.</p>
+            </Link>
+
+            <Link href={getAdminLink('/emails', adminPath)} className="group bg-zinc-900/50 border border-zinc-800 hover:border-primary/50 p-6 rounded-3xl transition-all hover:translate-y-[-4px]">
+              <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center mb-4 group-hover:bg-primary group-hover:text-black transition-colors">
+                <Mail size={24} />
+              </div>
+              <h3 className="text-lg font-black text-white mb-1">Email Management</h3>
+              <p className="text-zinc-500 text-sm leading-snug">Configure templates, SMTP providers, and automation.</p>
             </Link>
 
             {/* Coming Soon: Forum/Chat */}

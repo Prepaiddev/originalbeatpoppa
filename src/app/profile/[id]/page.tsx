@@ -12,15 +12,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import StatusModal from '@/components/StatusModal';
 import VerifiedCheck from '@/components/VerifiedCheck';
+import { recordActivity } from '@/lib/activity';
 
 interface Profile {
   id: string;
   display_name: string;
+  username?: string;
   avatar_url: string;
   cover_url: string;
   bio: string;
   location: string;
   website: string;
+  email?: string;
   role: string;
   created_at: string;
   is_verified?: boolean;
@@ -156,8 +159,10 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
     try {
       if (isFollowing) {
         await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', id);
+        await recordActivity(currentUser.id, id, 'unfollow', 'creator');
       } else {
         await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: id });
+        await recordActivity(currentUser.id, id, 'follow', 'creator');
       }
     } catch (err) {
       setIsFollowing(!isFollowing); // Revert

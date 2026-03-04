@@ -7,12 +7,13 @@ import { supabase } from '@/lib/supabase/client';
 interface ReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
-  beatId: string;
-  beatTitle: string;
+  beatId?: string;
+  bundleId?: string;
+  title: string;
   onSuccess?: () => void;
 }
 
-export default function ReviewModal({ isOpen, onClose, beatId, beatTitle, onSuccess }: ReviewModalProps) {
+export default function ReviewModal({ isOpen, onClose, beatId, bundleId, title, onSuccess }: ReviewModalProps) {
   const [rating, setRating] = useState(5);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState('');
@@ -24,7 +25,7 @@ export default function ReviewModal({ isOpen, onClose, beatId, beatTitle, onSucc
 
   const handleSubmit = async () => {
     if (!comment.trim()) {
-      setError('Please share your thoughts about this beat.');
+      setError(`Please share your thoughts about this ${beatId ? 'beat' : 'bundle'}.`);
       return;
     }
 
@@ -35,54 +36,110 @@ export default function ReviewModal({ isOpen, onClose, beatId, beatTitle, onSucc
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to leave a review.');
 
-      // Check if user has already reviewed this beat
-      const { data: existingReview } = await supabase
+      // Check if user has already reviewed this item
+      const query = supabase
         .from('reviews')
         .select('id')
-        .eq('reviewer_id', user.id)
-        .eq('beat_id', beatId)
-        .single();
+        .eq('reviewer_id', user.id);
+      
+      if (beatId) query.eq('beat_id', beatId);
+      if (bundleId) query.eq('bundle_id', bundleId);
+
+      const { data: existingReview } = await query.single();
 
       if (existingReview) {
-        throw new Error('You have already reviewed this beat.');
+        throw new Error(`You have already reviewed this ${beatId ? 'beat' : 'bundle'}.`);
       }
 
-      const { data: beatData, error: beatError } = await supabase
-        .from('beats')
-        .select('user_id')
-        .eq('id', beatId)
-        .single();
-
-      if (beatError) throw beatError;
+      let targetCreatorId;
+      if (beatId) {
+        const { data: beatData, error: beatError } = await supabase
+          .from('beats')
+          .select('artist_id')
+          .eq('id', beatId)
+          .single();
+        if (beatError) throw beatError;
+        targetCreatorId = beatData.artist_id;
+      } else if (bundleId) {
+        const { data: bundleData, error: bundleError } = await supabase
+          .from('bundles')
+          .select('creator_id')
+          .eq('id', bundleId)
+          .single();
+        if (bundleError) throw bundleError;
+        targetCreatorId = bundleData.creator_id;
+      }
 
       const { error: insertError } = await supabase
         .from('reviews')
         .insert({
-          beat_id: beatId,
+          beat_id: beatId || null,
+          bundle_id: bundleId || null,
           reviewer_id: user.id,
           rating,
           comment,
-          is_verified_purchase: true // Since we trigger this from purchases
+          is_verified_purchase: false // Default to false, will be updated if verified
         });
 
       if (insertError) throw insertError;
 
+      // Trigger review notification email
+      const { data: profile } = await supabase.from('profiles').select('display_name').eq('id', user.id).single();
+      await fetch('/api/emails/review-received', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          beatId,
+          bundleId,
+          rating,
+          comment,
+          reviewerName: profile?.display_name || 'A customer'
+        })
+      }).catch(err => console.error('Failed to send review email:', err));
+
+      // Update is_verified_purchase if user has bought it
+      if (beatId) {
+        const { data: purchaseData } = await supabase
+          .from('order_items')
+          .select('id, orders!inner(buyer_id)')
+          .eq('beat_id', beatId)
+          .eq('orders.buyer_id', user.id)
+          .limit(1);
+        
+        if (purchaseData && purchaseData.length > 0) {
+          await supabase.from('reviews').update({ is_verified_purchase: true }).eq('reviewer_id', user.id).eq('beat_id', beatId);
+        }
+      } else if (bundleId) {
+        const { data: purchaseData } = await supabase
+          .from('order_items')
+          .select('id, orders!inner(buyer_id)')
+          .eq('bundle_id', bundleId)
+          .eq('orders.buyer_id', user.id)
+          .limit(1);
+        
+        if (purchaseData && purchaseData.length > 0) {
+          await supabase.from('reviews').update({ is_verified_purchase: true }).eq('reviewer_id', user.id).eq('bundle_id', bundleId);
+        }
+      }
+
       // Notify creator
-      await supabase.from('notifications').insert({
-        user_id: beatData.user_id,
-        type: 'review',
-        title: 'New Review Received',
-        message: `Someone left a ${rating}-star review on your beat "${beatTitle}".`,
-        link: `/beat/${beatId}`
-      });
+      if (targetCreatorId) {
+        await supabase.from('notifications').insert({
+          user_id: targetCreatorId,
+          type: 'review',
+          title: 'New Review Received',
+          message: `Someone left a ${rating}-star review on your ${beatId ? 'beat' : 'bundle'} "${title}".`,
+          link: beatId ? `/beat/${beatId}` : `/bundle/${bundleId}`
+        });
+      }
 
       // Notify buyer (confirmation)
       await supabase.from('notifications').insert({
         user_id: user.id,
         type: 'review',
         title: 'Review Published',
-        message: `Your review for "${beatTitle}" has been posted successfully.`,
-        link: `/beat/${beatId}`
+        message: `Your review for "${title}" has been posted successfully.`,
+        link: beatId ? `/beat/${beatId}` : `/bundle/${bundleId}`
       });
 
       setSubmitted(true);
@@ -98,7 +155,9 @@ export default function ReviewModal({ isOpen, onClose, beatId, beatTitle, onSucc
 
     } catch (err: any) {
       console.error('Review submission error:', err);
-      setError(err.message || 'Failed to submit review.');
+      // Supabase errors might have a 'message' or 'details' property
+      const errorMessage = err.message || err.details || (typeof err === 'string' ? err : 'Failed to submit review.');
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -121,8 +180,8 @@ export default function ReviewModal({ isOpen, onClose, beatId, beatTitle, onSucc
           <>
             <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black text-white">Rate This Beat</h2>
-                <p className="text-xs text-zinc-500 uppercase tracking-widest font-bold mt-1">{beatTitle}</p>
+                <h2 className="text-xl font-black text-white">Rate This {beatId ? 'Beat' : 'Bundle'}</h2>
+                <p className="text-xs text-zinc-500 uppercase tracking-widest font-bold mt-1">{title}</p>
               </div>
               <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors p-2 hover:bg-zinc-800 rounded-full">
                 <X size={20} />

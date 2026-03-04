@@ -44,7 +44,7 @@ export default function AdminMaintenanceSettingsPage() {
       return;
     }
 
-    async function fetchSettings() {
+    async function fetchInitialSettings() {
       try {
         const { data, error } = await supabase
           .from('platform_settings')
@@ -64,10 +64,10 @@ export default function AdminMaintenanceSettingsPage() {
       }
     }
 
-    if (user) {
-      fetchSettings();
+    if (user && loading) {
+      fetchInitialSettings();
     }
-  }, [user, profile, authLoading, router]);
+  }, [user, profile?.role, authLoading, router, loading]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

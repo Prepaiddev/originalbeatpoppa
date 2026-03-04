@@ -19,7 +19,7 @@ import { Elements, CardElement, useStripe, useElements } from '@stripe/react-str
 import { PayPalScriptProvider, PayPalButtons } from "@paypal/react-paypal-js";
 
 export default function CheckoutPage() {
-  const { items, total, clearCart } = useCartStore();
+  const { items, total, subtotal, coupon, clearCart } = useCartStore();
   const { currency, exchangeRates, setCurrency } = useUIStore();
   const router = useRouter();
   
@@ -36,6 +36,7 @@ export default function CheckoutPage() {
   });
 
   const [paymentMethod, setPaymentMethod] = useState<string>('card');
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
 
   // Auto-switch currency based on payment method
   useEffect(() => {
@@ -99,12 +100,37 @@ export default function CheckoutPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not logged in');
 
+    // Final coupon validation before order creation
+    if (coupon) {
+      const { data: validCoupon, error: couponError } = await supabase
+        .from('coupons')
+        .select('*')
+        .eq('code', coupon.code)
+        .eq('is_active', true)
+        .single();
+      
+      if (couponError || !validCoupon) {
+        throw new Error('This coupon is no longer valid. Please remove it and try again.');
+      }
+
+      if (validCoupon.expires_at && new Date(validCoupon.expires_at) < new Date()) {
+        throw new Error('This coupon has expired. Please remove it and try again.');
+      }
+
+      if (validCoupon.max_uses && validCoupon.used_count >= validCoupon.max_uses) {
+        throw new Error('This coupon has reached its maximum usage limit.');
+      }
+    }
+
     // Create Order
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
         buyer_id: user.id,
         total_amount: total,
+        subtotal_amount: subtotal,
+        discount_amount: subtotal - total,
+        coupon_code: coupon?.code || null,
         currency: currency,
         status: 'pending',
         payment_provider: paymentMethod === 'card' ? 'stripe' : paymentMethod
@@ -117,9 +143,10 @@ export default function CheckoutPage() {
     // Create Order Items
     const orderItems = items.map(item => ({
       order_id: order.id,
-      beat_id: item.beatId,
-      license_type: item.license.id,
-      price: item.license.price
+      beat_id: item.type === 'beat' ? item.id : null,
+      bundle_id: item.type === 'bundle' ? item.id : null,
+      license_type: item.type === 'beat' ? item.license?.id : 'bundle',
+      price: item.price
     }));
 
     const { error: itemsError } = await supabase
@@ -132,7 +159,29 @@ export default function CheckoutPage() {
   };
 
   const completeOrderUI = async (orderId: string, trxId: string) => {
-    // Notifications logic remains same...
+    // If coupon was used, increment usage
+    if (coupon) {
+      const { data: success, error: rpcError } = await supabase.rpc('increment_coupon_usage', { coupon_code: coupon.code });
+      if (rpcError || !success) {
+        console.error('Failed to increment coupon usage:', rpcError);
+        // We still complete the order, but log the error
+      }
+    }
+
+    // Update order status and transaction ID
+    if (orderId !== 'paypal_order') {
+      await supabase
+        .from('orders')
+        .update({ 
+          status: 'completed', 
+          transaction_id: trxId,
+          // Re-calculate discount based on actual subtotal/total
+          discount_amount: subtotal - total,
+          coupon_code: coupon?.code || null
+        })
+        .eq('id', orderId);
+    }
+    
     setIsSuccess(true);
     clearCart();
   };
@@ -340,7 +389,7 @@ export default function CheckoutPage() {
                   <StripeForm 
                     onStart={() => setIsProcessing(true)}
                     onComplete={completeOrderUI}
-                    onError={(msg) => setPaymentError(msg)}
+                    onError={(msg: string) => setPaymentError(msg)}
                     orderCreator={createBaseOrder}
                     amount={total}
                     currency={currency}
@@ -381,28 +430,29 @@ export default function CheckoutPage() {
               )}
 
               {paymentMethod === 'paypal' && paymentSettings.paypalClientId && (
-                <PayPalScriptProvider options={{ "client-id": paymentSettings.paypalClientId, currency: currency.toUpperCase() }}>
+                <PayPalScriptProvider options={{ clientId: paymentSettings.paypalClientId, currency: currency.toUpperCase() }}>
                   <div className="space-y-4">
                     <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest text-center">Complete purchase via PayPal</p>
                     <PayPalButtons 
                       style={{ layout: "vertical", shape: "rect", color: "blue" }}
-                      createOrder={async () => {
+                      createOrder: async () => {
                         const order = await createBaseOrder();
+                        setPendingOrderId(order.id);
                         const { data } = await axios.post('/api/payments/paypal/create-order', {
                           amount: total,
                           currency: currency,
                           orderId: order.id
                         });
                         return data.id;
-                      }}
-                      onApprove={async (data, actions) => {
+                      },
+                      onApprove: async (data, actions) => {
                         const response = await axios.post('/api/payments/paypal/capture-order', {
                           orderID: data.orderID
                         });
                         if (response.data.status === 'success') {
-                          await completeOrderUI('paypal_order', data.orderID);
+                          await completeOrderUI(pendingOrderId || 'paypal_order', data.orderID);
                         }
-                      }}
+                      }
                     />
                   </div>
                 </PayPalScriptProvider>
@@ -420,25 +470,54 @@ export default function CheckoutPage() {
           <div className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 h-fit">
             <h3 className="font-bold text-lg mb-4">Your Order</h3>
             <div className="space-y-4 mb-6 max-h-60 overflow-y-auto pr-2">
-              {items.map((item) => (
-                <div key={item.beatId} className="flex items-center gap-3">
-                  <div className="relative w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0">
-                    <NextImage src={item.beat.coverUrl} alt={item.beat.title} fill className="object-cover" />
+              {items.map((item) => {
+                const isBeat = item.type === 'beat';
+                const track = isBeat ? item.item as any : null;
+                const bundle = !isBeat ? item.item as any : null;
+                
+                return (
+                  <div key={item.id} className="flex items-center gap-3">
+                    <div className="relative w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0">
+                      <NextImage 
+                        src={isBeat ? track.coverUrl : (bundle.cover_url || "https://images.unsplash.com/photo-1514525253440-b393452e8d26?q=80&w=400&auto=format&fit=crop")} 
+                        alt={isBeat ? track.title : bundle.title} 
+                        fill 
+                        className="object-cover" 
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{isBeat ? track.title : bundle.title}</p>
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-black">
+                        {isBeat ? item.license?.name : 'Bundle Pack'}
+                      </p>
+                    </div>
+                    <span className="font-bold text-sm">{formatPrice(item.price, currency, exchangeRates)}</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm truncate">{item.beat.title}</p>
-                    <p className="text-xs text-zinc-500">{item.license.name}</p>
-                  </div>
-                  <span className="font-bold text-sm">{formatPrice(item.license.price, currency, exchangeRates)}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
             
-            <div className="border-t border-zinc-800 pt-4 flex justify-between items-center">
-              <span className="text-zinc-400">Total</span>
-              <span className="text-xl font-black text-white">
-                {formatPrice(total, currency, exchangeRates)}
-              </span>
+            <div className="border-t border-zinc-800 pt-4 space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-zinc-400 font-medium">Subtotal</span>
+                <span className="text-zinc-300 font-bold">{formatPrice(subtotal, currency, exchangeRates)}</span>
+              </div>
+              
+              {coupon && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-green-500 font-medium flex items-center gap-1">
+                    <CheckCircle size={14} /> Discount ({coupon.code})
+                  </span>
+                  <span className="text-green-500 font-bold">-{formatPrice(subtotal - total, currency, exchangeRates)}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-3 border-t border-zinc-800/50">
+                <span className="text-white font-bold">Total</span>
+                <span className="text-2xl font-black text-primary">
+                  {formatPrice(total, currency, exchangeRates)}
+                </span>
+              </div>
             </div>
             
             <div className="mt-6 flex items-center gap-2 text-[10px] text-zinc-500 uppercase tracking-widest font-black justify-center">

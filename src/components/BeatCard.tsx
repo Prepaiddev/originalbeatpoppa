@@ -1,14 +1,15 @@
 "use client";
 
 import Image from 'next/image';
-import { Play, Pause, ShoppingCart, Heart, MoreVertical } from 'lucide-react';
+import { Play, Pause, ShoppingCart, Heart, MoreVertical, ListPlus } from 'lucide-react';
 import { Track, usePlayerStore } from '@/store/usePlayerStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore, formatPrice } from '@/store/useUIStore';
 import { useCartStore } from '@/store/useCartStore';
 import StatusModal from './StatusModal';
+import PlaylistModal from './PlaylistModal';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import Link from 'next/link';
 import AudioWaveformPlayer from './AudioWaveformPlayer';
@@ -33,10 +34,53 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
   
   const [isFavorited, setIsFavorited] = useState(false);
   const [authModal, setAuthModal] = useState({ isOpen: false, title: '', message: '' });
+  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const isCurrent = currentTrack?.id === beat.id;
   const isActive = externalIsPlaying !== undefined ? externalIsPlaying : (isCurrent && storeIsPlaying);
   const isInCart = cartItems.some(item => item.beatId === beat.id);
+
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+      if (previewTimeoutRef.current) {
+        clearTimeout(previewTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnter = () => {
+    if (isActive || storeIsPlaying) return; // Don't preview if something is already playing
+
+    previewTimeoutRef.current = setTimeout(() => {
+      if (!previewAudioRef.current) {
+        previewAudioRef.current = new Audio(beat.audioUrl);
+        previewAudioRef.current.volume = 0.3; // Low volume for preview
+        previewAudioRef.current.loop = true;
+      }
+      previewAudioRef.current.play().catch(() => {});
+      setIsPreviewing(true);
+    }, 800); // 800ms hover delay
+  };
+
+  const handleMouseLeave = () => {
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+    }
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+    setIsPreviewing(false);
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -53,6 +97,31 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
       .single();
     
     setIsFavorited(!!data);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handlePlaylistAction = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!currentUser) {
+      setAuthModal({
+        isOpen: true,
+        title: 'Login Required',
+        message: 'You need to be logged in to add to a playlist.'
+      });
+      return;
+    }
+    setIsPlaylistModalOpen(true);
+    setShowMenu(false);
   };
 
   const handleFavorite = async (e: React.MouseEvent) => {
@@ -111,9 +180,17 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
     <>
       {variant === 'list' ? (
         <div 
-          className="flex items-center p-2 hover:bg-white/5 rounded-lg transition-all group cursor-pointer snap-start"
+          className={clsx(
+            "flex items-center p-2 hover:bg-white/5 rounded-lg transition-all group cursor-pointer snap-start relative overflow-hidden",
+            isPreviewing && "bg-white/[0.08]"
+          )}
           onClick={() => router.push(`/beat/${beat.id}`)}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
         >
+          {isPreviewing && (
+            <div className="absolute top-0 left-0 h-1 bg-primary/30 animate-[loading_2s_ease-in-out_infinite]" style={{ width: '100%' }} />
+          )}
           <div className="flex items-center flex-1 min-w-0">
             {/* Cover Art */}
             <div className="relative w-12 h-12 flex-shrink-0 rounded-md overflow-hidden bg-zinc-800 shadow-md">
@@ -158,7 +235,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
-                  addToCart(beat);
+                  addToCart(beat, 'beat');
                   router.push('/cart');
                 }}
                 className="group/price flex flex-col items-end"
@@ -174,7 +251,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
             <button 
               onClick={(e) => {
                 e.stopPropagation();
-                addToCart(beat);
+                addToCart(beat, 'beat');
               }}
               className={clsx(
                 "p-2 rounded-full transition-all",
@@ -196,16 +273,51 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
             >
               <Heart size={18} fill={isFavorited ? "currentColor" : "none"} />
             </button>
-            <button className="p-2 text-zinc-500 hover:text-white transition-colors">
-              <MoreVertical size={18} />
-            </button>
+            <div className="relative" ref={menuRef}>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                }}
+                className="p-2 text-zinc-500 hover:text-white transition-colors"
+              >
+                <MoreVertical size={18} />
+              </button>
+              
+              {showMenu && (
+                <div className="absolute right-0 bottom-full mb-2 w-48 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <button 
+                    onClick={handlePlaylistAction}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                  >
+                    <ListPlus size={16} />
+                    Add to Playlist
+                  </button>
+                  <button 
+                    onClick={handleFavorite}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                  >
+                    <Heart size={16} fill={isFavorited ? "currentColor" : "none"} />
+                    {isFavorited ? 'Remove from Favs' : 'Add to Favorites'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : (
         <div 
-          className="group bg-zinc-900/40 rounded-2xl p-3 border border-zinc-800/50 hover:border-zinc-700/50 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50"
+          className={clsx(
+            "group bg-zinc-900/40 rounded-2xl p-3 border border-zinc-800/50 hover:border-zinc-700/50 transition-all duration-300 hover:shadow-2xl hover:shadow-black/50 relative overflow-hidden",
+            isPreviewing && "bg-white/[0.08]"
+          )}
           onClick={() => router.push(`/beat/${beat.id}`)}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
         >
+          {isPreviewing && (
+            <div className="absolute top-0 left-0 h-1 bg-primary/30 animate-[loading_2s_ease-in-out_infinite]" style={{ width: '100%' }} />
+          )}
           <div className="relative aspect-square rounded-xl overflow-hidden mb-4 shadow-lg">
             <Image 
               src={beat.coverUrl} 
@@ -236,7 +348,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
-                  addToCart(beat);
+                  addToCart(beat, 'beat');
                   router.push('/cart');
                 }}
                 className="group/buy flex flex-col text-left"
@@ -259,7 +371,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
                   <Heart size={16} fill={isFavorited ? "currentColor" : "none"} />
                 </button>
                 <button 
-                  onClick={() => addToCart(beat)}
+                  onClick={() => addToCart(beat, 'beat')}
                   className={clsx(
                     "w-9 h-9 rounded-full flex items-center justify-center border transition-all",
                     isInCart ? "border-primary bg-primary text-white shadow-lg shadow-primary/30" : "border-zinc-800/50 bg-zinc-900/50 text-zinc-400 hover:border-zinc-600 hover:text-white"
@@ -280,6 +392,14 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
         title={authModal.title}
         message={authModal.message}
         onAction={() => router.push('/auth/login')}
+      />
+
+      <PlaylistModal 
+        isOpen={isPlaylistModalOpen}
+        onClose={() => setIsPlaylistModalOpen(false)}
+        beatId={beat.id}
+        beatTitle={beat.title}
+        beatCover={beat.coverUrl}
       />
     </>
   );

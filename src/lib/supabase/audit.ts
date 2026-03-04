@@ -20,7 +20,7 @@ export async function logActivity(
   action: AuditAction, 
   entityType?: string, 
   entityId?: string, 
-  details?: any
+  details?: Record<string, unknown>
 ) {
   try {
     const { data: { session } } = await supabase.auth.getSession();

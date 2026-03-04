@@ -22,6 +22,36 @@ export default function AudioPlayer() {
   const [duration, setDuration] = useState(0);
   const lastRecordedBeatId = useRef<string | null>(null);
 
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts if the user is typing in an input/textarea
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA' ||
+        (document.activeElement as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowLeft') {
+        if (audioRef.current) {
+          audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+        }
+      } else if (e.code === 'ArrowRight') {
+        if (audioRef.current) {
+          audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 10);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay]);
+
   useEffect(() => {
     if (isPlaying && currentTrack && currentUser && lastRecordedBeatId.current !== currentTrack.id) {
       recordActivity(currentUser.id, currentTrack.id, 'play');
@@ -127,11 +157,11 @@ export default function AudioPlayer() {
       audioRef.current.pause();
       audioRef.current.src = "";
     }
-    usePlayerStore.getState().setTrack(null);
+    usePlayerStore.getState().setCurrentTrack(null);
   };
 
   return (
-    <div className="fixed bottom-[84px] sm:bottom-[72px] left-0 right-0 bg-zinc-900/95 backdrop-blur-md border-t border-white/5 text-white shadow-2xl z-40 animate-slide-up mx-2 mb-2 rounded-xl overflow-hidden ring-1 ring-white/5 h-14 sm:h-16">
+    <div className="fixed bottom-[68px] sm:bottom-[80px] left-0 right-0 bg-zinc-900/95 backdrop-blur-md border-t border-white/5 text-white shadow-2xl z-40 animate-slide-up mx-2 mb-2 rounded-xl overflow-hidden ring-1 ring-white/5 h-12 sm:h-16">
       <audio
         id="global-audio-player"
         ref={audioRef}
@@ -156,7 +186,7 @@ export default function AudioPlayer() {
           className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0 cursor-pointer"
           onClick={() => router.push(`/beat/${currentTrack.id}`)}
         >
-          <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-md overflow-hidden bg-zinc-800 flex-shrink-0 shadow-lg ring-1 ring-white/10">
+          <div className="relative w-7 h-7 sm:w-10 sm:h-10 rounded-md overflow-hidden bg-zinc-800 flex-shrink-0 shadow-lg ring-1 ring-white/10">
              <Image 
                src={currentTrack.coverUrl} 
                alt={currentTrack.title} 
@@ -165,14 +195,14 @@ export default function AudioPlayer() {
              />
           </div>
           <div className="min-w-0 flex-1">
-            <h4 className="font-bold text-xs sm:text-sm truncate">
+            <h4 className="font-bold text-[10px] sm:text-sm truncate">
               {currentTrack.title}
             </h4>
-            <p className="text-[9px] sm:text-[10px] text-zinc-400 truncate uppercase tracking-tighter">
+            <p className="text-[8px] sm:text-[10px] text-zinc-400 truncate uppercase tracking-tighter">
               {currentTrack.artist}
             </p>
           </div>
-          <div className="hidden xs:flex items-center gap-1.5 ml-2 text-[10px] font-mono text-zinc-500 bg-black/30 px-2 py-0.5 rounded border border-white/5">
+          <div className="hidden xs:flex items-center gap-1.5 ml-1 text-[8px] sm:text-[10px] font-mono text-zinc-500 bg-black/30 px-1.5 py-0.5 rounded border border-white/5">
             <span className="text-white">{formatTime(progress)}</span>
             <span className="opacity-30">/</span>
             <span>{formatTime(duration)}</span>
@@ -196,23 +226,23 @@ export default function AudioPlayer() {
         <div className="flex items-center gap-0.5 sm:gap-1">
           <button 
             onClick={playPrev}
-            className="p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors"
+            className="p-1 sm:p-2 text-zinc-400 hover:text-white transition-colors"
           >
-            <SkipBack className="size-[18px] sm:size-[20px]" fill="currentColor" />
+            <SkipBack className="size-[16px] sm:size-[20px]" fill="currentColor" />
           </button>
           
           <button 
             onClick={togglePlay}
-            className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
+            className="w-7 h-7 sm:w-10 sm:h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
           >
-            {isPlaying ? <Pause className="size-[18px] sm:size-[20px]" fill="currentColor" /> : <Play className="size-[18px] sm:size-[20px] ml-0.5" fill="currentColor" />}
+            {isPlaying ? <Pause className="size-[16px] sm:size-[20px]" fill="currentColor" /> : <Play className="size-[16px] sm:size-[20px] ml-0.5" fill="currentColor" />}
           </button>
 
           <button 
             onClick={playNext}
-            className="p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors"
+            className="p-1 sm:p-2 text-zinc-400 hover:text-white transition-colors"
           >
-            <SkipForward className="size-[18px] sm:size-[20px]" fill="currentColor" />
+            <SkipForward className="size-[16px] sm:size-[20px]" fill="currentColor" />
           </button>
         </div>
 

@@ -16,7 +16,7 @@ export default function AdminBeatsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [statusModal, setStatusModal] = useState({ 
     isOpen: false, 
-    type: 'success' as 'success' | 'error' | 'info' | 'warning' | 'loading' | 'auth',
+    type: 'success' as 'success' | 'error' | 'loading' | 'auth',
     title: '', 
     message: '',
     onAction: undefined as (() => void) | undefined
@@ -27,7 +27,7 @@ export default function AdminBeatsPage() {
     creatorId: '',
     reason: ''
   });
-  const { setTrack, setIsPlaying } = usePlayerStore();
+  const { play } = usePlayerStore();
 
   useEffect(() => {
     fetchBeats();
@@ -159,15 +159,15 @@ export default function AdminBeatsPage() {
     beat.profiles?.username?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handlePlay = (beat: any) => {
-    setTrack({
+  const handlePreview = (beat: any) => {
+    play({
       id: beat.id,
       title: beat.title,
-      artist: beat.profiles?.display_name || beat.profiles?.username || 'Unknown',
-      cover_url: beat.cover_url,
-      audio_url: beat.audio_url
+      artist: beat.profiles?.display_name || 'Unknown',
+      audioUrl: beat.audio_url,
+      coverUrl: beat.cover_url,
+      price: beat.price
     });
-    setIsPlaying(true);
   };
 
   const handleDelete = async (beatId: string) => {
@@ -249,7 +249,7 @@ export default function AdminBeatsPage() {
                       className="w-full h-full object-cover rounded-2xl border border-zinc-800 shadow-2xl"
                     />
                     <button 
-                      onClick={() => handlePlay(beat)}
+                      onClick={() => handlePreview(beat)}
                       className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover/cover:opacity-100 transition-opacity rounded-2xl"
                     >
                       <Play size={24} className="text-primary fill-primary" />

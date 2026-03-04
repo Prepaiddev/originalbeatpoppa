@@ -5,13 +5,14 @@ import { use } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { MapPin, Calendar, Clock, Star, MessageSquare, CheckCircle, UserPlus, Mail, Instagram, Twitter, Youtube, Globe } from 'lucide-react';
+import { MapPin, Calendar, Clock, Star, MessageSquare, CheckCircle, UserPlus, Mail, Instagram, Twitter, Youtube, Globe, Users } from 'lucide-react';
 import BeatCard from '@/components/BeatCard';
 import VerifiedCheck from '@/components/VerifiedCheck';
 import { Track } from '@/store/usePlayerStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import StatusModal from '@/components/StatusModal';
 import { useRouter } from 'next/navigation';
+import { recordActivity } from '@/lib/activity';
 
 interface CreatorProfile {
   id: string;
@@ -39,7 +40,10 @@ interface Review {
     display_name: string;
     avatar_url: string;
   };
-  beat: {
+  beat?: {
+    title: string;
+  };
+  bundle?: {
     title: string;
   };
 }
@@ -48,7 +52,27 @@ interface CreatorStats {
   total_beats: number;
   total_sales: number;
   followers: number;
+  following: number;
   avg_rating: number;
+}
+
+interface FollowerProfile {
+  follower_id: string;
+  profiles: {
+    id: string;
+    display_name: string;
+    username: string;
+    avatar_url: string;
+    bio: string;
+  };
+}
+
+interface RecommendedCreator {
+  id: string;
+  display_name: string;
+  username: string;
+  avatar_url: string;
+  is_verified: boolean;
 }
 
 export default function CreatorProfilePage({ params }: { params: Promise<{ username: string }> }) {
@@ -59,9 +83,11 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
   const [beats, setBeats] = useState<Track[]>([]);
   const [trendingBeats, setTrendingBeats] = useState<Track[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [stats, setStats] = useState<CreatorStats>({ total_beats: 0, total_sales: 0, followers: 0, avg_rating: 0 });
+  const [stats, setStats] = useState<CreatorStats>({ total_beats: 0, total_sales: 0, followers: 0, following: 0, avg_rating: 0 });
+  const [followers, setFollowers] = useState<FollowerProfile[]>([]);
+  const [recommendedCreators, setRecommendedCreators] = useState<RecommendedCreator[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'beats' | 'trending' | 'reviews'>('beats');
+  const [activeTab, setActiveTab] = useState<'beats' | 'trending' | 'reviews' | 'followers'>('beats');
   const [isFollowing, setIsFollowing] = useState(false);
   const [authModal, setAuthModal] = useState({ isOpen: false, title: '', message: '' });
 
@@ -102,21 +128,26 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
         };
         setProfile(fullProfile);
 
-        // 2. Fetch Stats & Reviews
-        const [beatsRes, followersRes, salesRes, reviewsRes] = await Promise.all([
-          supabase.from('beats').select('*', { count: 'exact', head: true }).eq('artist_id', profileData.id),
-          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_id', profileData.id),
+        // 2. Fetch Stats & Reviews & Followers
+        const [beatsRes, bundlesRes, followersRes, followingRes, salesRes, recommendedRes] = await Promise.all([
+          supabase.from('beats').select('id', { count: 'exact' }).eq('artist_id', profileData.id),
+          supabase.from('bundles').select('id', { count: 'exact' }).eq('creator_id', profileData.id),
+          supabase.from('follows').select('follower_id, profiles!follower_id(id, display_name, username, avatar_url, bio)').eq('following_id', profileData.id),
+          supabase.from('follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileData.id),
           supabase.from('order_items').select('*, beats!inner(*)').eq('beats.artist_id', profileData.id),
-          supabase
-            .from('reviews')
-            .select(`
-              *,
-              reviewer:profiles!reviewer_id(display_name, avatar_url),
-              beat:beats!inner(title, artist_id)
-            `)
-            .eq('beats.artist_id', profileData.id)
-            .order('created_at', { ascending: false })
+          supabase.from('profiles').select('id, display_name, username, avatar_url, is_verified').eq('is_verified', true).neq('id', profileData.id).limit(3)
         ]);
+
+        const reviewsRes = await supabase
+          .from('reviews')
+          .select(`
+            *,
+            reviewer:profiles!reviewer_id(display_name, avatar_url),
+            beat:beats(title, artist_id),
+            bundle:bundles(title, creator_id)
+          `)
+          .or(`beat_id.in.(${beatsRes.data?.map(b => b.id).join(',') || '00000000-0000-0000-0000-000000000000'}),bundle_id.in.(${bundlesRes.data?.map(b => b.id).join(',') || '00000000-0000-0000-0000-000000000000'})`)
+          .order('created_at', { ascending: false });
 
         if (!isMounted) return;
 
@@ -127,10 +158,19 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
 
         setStats({
           total_beats: beatsRes.count || 0,
-          followers: followersRes.count || 0,
+          followers: followersRes.data?.length || 0,
+          following: followingRes.count || 0,
           total_sales: salesRes.data?.length || 0,
           avg_rating: avgRating
         });
+
+        if (followersRes.data) {
+          setFollowers(followersRes.data as any);
+        }
+
+        if (recommendedRes.data) {
+          setRecommendedCreators(recommendedRes.data as any);
+        }
 
         if (reviewsRes.data) {
           setReviews(reviewsRes.data as any);
@@ -220,12 +260,39 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
        });
        return;
      }
-     setIsFollowing(!isFollowing); // Optimistic
+     
+     const newIsFollowing = !isFollowing;
+     setIsFollowing(newIsFollowing); // Optimistic
+     
+     // Update stats and followers list optimistically
+     setStats(prev => ({
+       ...prev,
+       followers: newIsFollowing ? prev.followers + 1 : prev.followers - 1
+     }));
+
+     if (newIsFollowing) {
+       // Mock add to followers list if we want to show it immediately
+       const mockFollower: FollowerProfile = {
+         follower_id: currentUser.id,
+         profiles: {
+           id: currentUser.id,
+           display_name: currentUser.user_metadata?.full_name || currentUser.email || 'User',
+           username: currentUser.user_metadata?.username || 'user',
+           avatar_url: currentUser.user_metadata?.avatar_url || '',
+           bio: ''
+         }
+       };
+       setFollowers(prev => [mockFollower, ...prev]);
+     } else {
+       setFollowers(prev => prev.filter(f => f.follower_id !== currentUser.id));
+     }
      
      if (isFollowing) {
         await supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id);
+        await recordActivity(currentUser.id, profile.id, 'unfollow', 'creator');
      } else {
         await supabase.from('follows').insert({ follower_id: currentUser.id, following_id: profile.id });
+        await recordActivity(currentUser.id, profile.id, 'follow', 'creator');
         
         // Add notification for the creator
         await supabase.from('notifications').insert({
@@ -259,30 +326,32 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
       <Header />
       
       {/* Cover Image */}
-      <div className="h-64 md:h-80 w-full relative bg-zinc-900">
-         <Image src={profile.cover_url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=1200"} alt="Cover" fill className="object-cover opacity-60" />
+      <div className="h-48 md:h-80 w-full relative bg-zinc-900">
+         <Image src={profile.cover_url || "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?q=80&w=1200"} alt="Cover" fill className="object-cover opacity-60" priority />
          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 -mt-24 relative z-10">
-         <div className="flex flex-col md:flex-row items-end gap-6 mb-8">
+      <main className="max-w-7xl mx-auto px-4 -mt-16 md:-mt-24 relative z-10">
+         <div className="flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 mb-8">
             {/* Avatar */}
-            <div className="w-40 h-40 rounded-full border-4 border-black bg-zinc-800 relative overflow-hidden shadow-2xl">
+            <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-black bg-zinc-800 relative overflow-hidden shadow-2xl flex-shrink-0">
                <Image src={profile.avatar_url || "https://placehold.co/400"} alt={profile.display_name} fill className="object-cover" />
             </div>
             
             {/* Info */}
-            <div className="flex-1 pb-2">
-               <div className="flex items-center gap-2">
-                  <h1 className="text-4xl font-black text-white">{profile.display_name}</h1>
-                  {profile.is_verified && <VerifiedCheck size={24} />}
+            <div className="flex-1 pb-2 text-center md:text-left w-full">
+               <div className="flex flex-col md:flex-row items-center md:items-end gap-2 mb-2 md:mb-0">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-3xl md:text-4xl font-black text-white">{profile.display_name}</h1>
+                    {profile.is_verified && <VerifiedCheck size={24} />}
+                  </div>
+                  <p className="text-zinc-400 text-sm md:mb-1">@{profile.username}</p>
                </div>
-               <p className="text-zinc-400 text-sm mb-4">@{profile.username}</p>
                
-               <div className="flex flex-wrap gap-6 text-sm text-zinc-400 mb-6">
+               <div className="flex flex-wrap justify-center md:justify-start gap-4 md:gap-6 text-xs md:text-sm text-zinc-400 mb-6">
                   <span className="flex items-center gap-1"><MapPin size={14} /> {profile.location || "Global"}</span>
                   <span className="flex items-center gap-1"><Calendar size={14} /> Joined {new Date(profile.created_at).getFullYear()}</span>
-                  <div className="flex items-center gap-2 ml-auto">
+                  <div className="flex items-center gap-4 md:gap-2 md:ml-auto">
                     {profile.social_links?.instagram && (
                       <a href={`https://instagram.com/${profile.social_links.instagram}`} target="_blank" className="text-zinc-500 hover:text-pink-500 transition-colors">
                         <Instagram size={18} />
@@ -301,43 +370,43 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
                   </div>
                </div>
 
-               <div className="flex gap-3">
-                  <button onClick={handleFollow} className={`px-8 py-2.5 rounded-full font-bold transition-all flex items-center gap-2 ${isFollowing ? 'bg-zinc-800 text-white' : 'bg-primary text-white hover:bg-rose-600'}`}>
+               <div className="flex justify-center md:justify-start gap-3">
+                  <button onClick={handleFollow} className={`flex-1 md:flex-none px-8 py-2.5 rounded-full font-bold transition-all flex items-center justify-center gap-2 ${isFollowing ? 'bg-zinc-800 text-white' : 'bg-primary text-white hover:bg-rose-600'}`}>
                      {isFollowing ? 'Following' : <><UserPlus size={18} /> Follow</>}
                   </button>
-                  <button onClick={handleContact} className="px-6 py-2.5 rounded-full font-bold bg-zinc-900 border border-zinc-800 text-white hover:bg-zinc-800 transition-colors flex items-center gap-2">
+                  <button onClick={handleContact} className="flex-1 md:flex-none px-6 py-2.5 rounded-full font-bold bg-zinc-900 border border-zinc-800 text-white hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2">
                      <MessageSquare size={18} /> Message
                   </button>
                </div>
             </div>
 
             {/* Stats Box */}
-            <div className="bg-zinc-900/80 backdrop-blur-md p-6 rounded-2xl border border-zinc-800 flex gap-8 mb-2">
+            <div className="w-full md:w-auto bg-zinc-900/80 backdrop-blur-md p-4 md:p-6 rounded-2xl border border-zinc-800 flex justify-between md:justify-start gap-4 md:gap-8 mb-2">
                <div className="text-center">
-                  <div className="text-2xl font-black text-white">{stats.total_beats}</div>
-                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Beats</div>
+                  <div className="text-xl md:text-2xl font-black text-white">{stats.total_beats}</div>
+                  <div className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-wider">Beats</div>
                </div>
                <div className="text-center">
-                  <div className="text-2xl font-black text-white">{stats.total_sales}</div>
-                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Sales</div>
+                  <div className="text-xl md:text-2xl font-black text-white">{stats.total_sales}</div>
+                  <div className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-wider">Sales</div>
                </div>
                <div className="text-center">
-                  <div className="text-2xl font-black text-white">{stats.followers}</div>
-                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Followers</div>
+                  <div className="text-xl md:text-2xl font-black text-white">{stats.followers}</div>
+                  <div className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-wider">Followers</div>
                </div>
-               <div className="text-center border-l border-zinc-800 pl-8">
-                  <div className="flex items-center gap-1 text-2xl font-black text-white">
+               <div className="text-center border-l border-zinc-800 pl-4 md:pl-8">
+                  <div className="flex items-center justify-center gap-1 text-xl md:text-2xl font-black text-white">
                     {stats.avg_rating.toFixed(1)}
-                    <Star size={20} className="text-yellow-500 fill-current" />
+                    <Star size={16} className="text-yellow-500 fill-current" />
                   </div>
-                  <div className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Rating</div>
+                  <div className="text-[10px] md:text-xs font-bold text-zinc-500 uppercase tracking-wider">Rating</div>
                </div>
             </div>
          </div>
 
          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Left Sidebar: Bio & Genres */}
-            <div className="lg:col-span-1 space-y-6">
+            <div className="lg:col-span-1 space-y-6 order-2 lg:order-1">
                <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                   <h3 className="font-bold text-white mb-3">About Producer</h3>
                   <p className="text-sm text-zinc-400 leading-relaxed mb-6">{profile.bio || "No bio available."}</p>
@@ -355,18 +424,59 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
                     </>
                   )}
                </div>
+
+               {/* Recommended Creators */}
+               {recommendedCreators.length > 0 && (
+                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                   <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                     <Users size={18} className="text-primary" />
+                     Discover More
+                   </h3>
+                   <div className="space-y-4">
+                     {recommendedCreators.map(creator => (
+                       <button 
+                         key={creator.id}
+                         onClick={() => router.push(`/creator/${creator.username}`)}
+                         className="flex items-center gap-3 w-full text-left group"
+                       >
+                         <div className="relative w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex-shrink-0 group-hover:ring-2 ring-primary/50 transition-all">
+                           <Image 
+                             src={creator.avatar_url || "https://placehold.co/100"} 
+                             alt={creator.display_name} 
+                             fill 
+                             className="object-cover" 
+                           />
+                         </div>
+                         <div className="flex-1 min-w-0">
+                           <div className="font-bold text-white text-xs truncate flex items-center gap-1">
+                             {creator.display_name}
+                             {creator.is_verified && <VerifiedCheck size={10} />}
+                           </div>
+                           <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest truncate">
+                             @{creator.username}
+                           </div>
+                         </div>
+                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                           <Globe size={14} className="text-primary" />
+                         </div>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               )}
             </div>
 
             {/* Main Content: Beats & Reviews */}
-            <div className="lg:col-span-3">
-               <div className="flex gap-6 border-b border-zinc-800 mb-6">
-                  {['beats', 'trending', 'reviews'].map(tab => (
+            <div className="lg:col-span-3 order-1 lg:order-2">
+               <div className="flex gap-4 md:gap-6 border-b border-zinc-800 mb-6 overflow-x-auto no-scrollbar whitespace-nowrap">
+                  {['beats', 'trending', 'reviews', 'followers'].map(tab => (
                      <button 
                        key={tab}
                        onClick={() => setActiveTab(tab as any)}
-                       className={`pb-4 text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === tab ? 'text-primary border-primary' : 'text-zinc-500 border-transparent hover:text-white'}`}
+                       className={`pb-4 text-[10px] md:text-sm font-bold uppercase tracking-wider border-b-2 transition-colors ${activeTab === tab ? 'text-primary border-primary' : 'text-zinc-500 border-transparent hover:text-white'}`}
                      >
-                       {tab === 'reviews' ? `Reviews (${reviews.length})` : tab}
+                       {tab === 'reviews' ? `Reviews (${reviews.length})` : 
+                        tab === 'followers' ? `Followers (${stats.followers})` : tab}
                      </button>
                   ))}
                </div>
@@ -389,7 +499,7 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
                              <div>
                                <div className="font-bold text-white text-sm">{review.reviewer.display_name}</div>
                                <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-                                 Reviewed <span className="text-primary">{review.beat.title}</span>
+                                 Reviewed <span className="text-primary">{review.beat?.title || review.bundle?.title || 'Unknown Item'}</span>
                                </div>
                              </div>
                            </div>
@@ -422,6 +532,41 @@ export default function CreatorProfilePage({ params }: { params: Promise<{ usern
                        <Star size={48} className="text-zinc-700 mx-auto mb-4" />
                        <h3 className="text-xl font-bold text-white mb-2">No Reviews Yet</h3>
                        <p className="text-zinc-500 max-w-xs mx-auto">This creator hasn't received any reviews yet. Be the first to purchase a beat and leave feedback!</p>
+                     </div>
+                   )}
+                 </div>
+               ) : activeTab === 'followers' ? (
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                   {followers.length > 0 ? (
+                     followers.map(f => (
+                       <div key={f.follower_id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex items-center gap-4 group hover:bg-zinc-900 transition-colors">
+                         <div className="relative w-12 h-12 rounded-full overflow-hidden bg-zinc-800">
+                           <Image 
+                             src={f.profiles.avatar_url || "https://placehold.co/100"} 
+                             alt={f.profiles.display_name} 
+                             fill 
+                             className="object-cover" 
+                           />
+                         </div>
+                         <div className="flex-1 min-w-0">
+                           <div className="font-bold text-white text-sm truncate">{f.profiles.display_name}</div>
+                           <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest truncate">
+                             @{f.profiles.username}
+                           </div>
+                         </div>
+                         <button 
+                           onClick={() => router.push(`/u/${f.profiles.username}`)}
+                           className="p-2 rounded-full bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                         >
+                           <Globe size={16} />
+                         </button>
+                       </div>
+                     ))
+                   ) : (
+                     <div className="col-span-full py-20 text-center bg-zinc-900/30 rounded-3xl border border-zinc-800/50">
+                       <UserPlus size={48} className="text-zinc-700 mx-auto mb-4" />
+                       <h3 className="text-xl font-bold text-white mb-2">No Followers Yet</h3>
+                       <p className="text-zinc-500 max-w-xs mx-auto">Be the first to follow this creator to stay updated with their latest releases!</p>
                      </div>
                    )}
                  </div>

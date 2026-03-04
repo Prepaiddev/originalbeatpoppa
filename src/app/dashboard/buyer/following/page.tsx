@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
+import { recordActivity } from '@/lib/activity';
 
 export default function FollowingPage() {
   const { user } = useAuthStore();
@@ -42,6 +43,7 @@ export default function FollowingPage() {
     if (!user) return;
     try {
       await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', creatorId);
+      await recordActivity(user.id, creatorId, 'unfollow', 'creator');
       setFollowing(following.filter(f => f.following_id !== creatorId));
     } catch (error) {
       console.error('Error unfollowing:', error);

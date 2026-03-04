@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { useAuthStore } from '@/store/useAuthStore';
-import { Bell, Check, ExternalLink, Info, DollarSign, UserPlus, Music, Trash2 } from 'lucide-react';
+import { Bell, Check, ExternalLink, Info, DollarSign, UserPlus, Music, Trash2, Heart } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -39,6 +39,8 @@ export default function NotificationDropdown({ isAdmin = false }: { isAdmin?: bo
       case 'withdrawal_request': return <DollarSign className="text-yellow-500" size={16} />;
       case 'verification_request': return <Check className="text-purple-500" size={16} />;
       case 'beat_submission': return <Music className="text-primary" size={16} />;
+      case 'follow': return <UserPlus className="text-blue-500" size={16} />;
+      case 'favorite': return <Heart className="text-red-500" size={16} />;
       default: return <Info className="text-zinc-500" size={16} />;
     }
   };

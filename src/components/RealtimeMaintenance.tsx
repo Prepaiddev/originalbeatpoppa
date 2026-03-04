@@ -9,21 +9,24 @@ import { useSettingsStore } from "@/store/useSettingsStore";
 export default function RealtimeMaintenance() {
   const router = useRouter();
   const pathname = usePathname();
-  const { profile } = useAuthStore();
-  const { maintenance, fetchSettings } = useSettingsStore();
+  const { profile, isLoading: authLoading } = useAuthStore();
+  const { maintenance, fetchSettings, adminPath } = useSettingsStore();
 
   // 1. Redirect logic reacts whenever maintenance state OR pathname changes
   useEffect(() => {
-    if (maintenance === null) return;
+    // Wait for auth to initialize before making redirection decisions
+    if (authLoading || maintenance === null) return;
     
     const isMaintenance = maintenance.maintenance_mode;
     const isAdmin = profile?.role === 'admin';
 
     // Define excluded paths (don't redirect these)
+    // We must include the dynamic secret admin path as well
     const isExcluded = 
       pathname.startsWith('/maintenance') || 
       pathname.startsWith('/auth') || 
       pathname.startsWith('/admin') ||
+      (adminPath && pathname.startsWith(`/${adminPath}`)) ||
       pathname.startsWith('/_next') ||
       pathname.includes('.') ||
       isAdmin;
@@ -35,7 +38,7 @@ export default function RealtimeMaintenance() {
       console.log('Maintenance is OFF: Restoring access...');
       router.push('/');
     }
-  }, [maintenance, pathname, profile, router]);
+  }, [maintenance, pathname, profile, router, adminPath, authLoading]);
 
   // 2. Subscription logic runs once on mount
   useEffect(() => {
@@ -53,15 +56,19 @@ export default function RealtimeMaintenance() {
           table: 'platform_settings'
         },
         async (payload: any) => {
-          console.log('Realtime settings update detected:', payload);
-          // Refresh settings in the Zustand store
-          // This will trigger the redirect logic above automatically
-          await fetchSettings();
+          // Only refetch if the change is relevant to maintenance or general settings
+          if (
+            payload.new?.key === 'maintenance_settings' || 
+            payload.new?.key === 'general_settings' ||
+            payload.old?.key === 'maintenance_settings' ||
+            payload.old?.key === 'general_settings'
+          ) {
+            console.log('Relevant realtime settings update detected:', payload.new?.key);
+            await fetchSettings();
+          }
         }
       )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);

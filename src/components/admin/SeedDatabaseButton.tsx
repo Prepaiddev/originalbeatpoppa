@@ -55,9 +55,10 @@ export default function SeedDatabaseButton() {
 
       setMessage(`Successfully seeded ${beatsToInsert.length} beats!`);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Seeding error:', error);
-      setMessage(`Error: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setMessage(`Error: ${errorMessage}`);
     } finally {
       setLoading(false);
     }

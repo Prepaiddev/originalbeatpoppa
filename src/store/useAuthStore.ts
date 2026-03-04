@@ -6,7 +6,7 @@ export type UserRole = 'guest' | 'buyer' | 'creator' | 'admin';
 
 interface AuthState {
   user: User | null;
-  profile: any | null;
+  profile: Record<string, unknown> | null;
   isLoading: boolean;
   role: UserRole;
   
@@ -14,6 +14,10 @@ interface AuthState {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   isInitialized: boolean;
+  impersonateUser: (userId: string) => Promise<void>;
+  stopImpersonating: () => Promise<void>;
+  isImpersonating: boolean;
+  originalUser: User | null;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -22,6 +26,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
   role: 'guest',
   isInitialized: false,
+  isImpersonating: false,
+  originalUser: null,
+
+  impersonateUser: async (userId: string) => {
+    try {
+      set({ isLoading: true });
+      const { data: targetProfile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) throw error;
+
+      const { user } = get();
+      if (!get().isImpersonating) {
+        set({ originalUser: user });
+      }
+
+      set({ 
+        user: { id: userId } as User, 
+        profile: targetProfile, 
+        role: targetProfile.role as UserRole,
+        isImpersonating: true,
+        isLoading: false
+      });
+    } catch (error) {
+      console.error('Impersonation error:', error);
+      set({ isLoading: false });
+    }
+  },
+
+  stopImpersonating: async () => {
+    const { originalUser } = get();
+    set({ isImpersonating: false, user: originalUser, originalUser: null });
+    await get().refreshProfile();
+  },
 
   initialize: async () => {
     // If already initializing or initialized, don't run again

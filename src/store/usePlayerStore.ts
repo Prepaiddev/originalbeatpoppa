@@ -4,6 +4,7 @@ export interface Track {
   id: string;
   title: string;
   artist: string;
+  artist_id?: string;
   username?: string;
   isVerified?: boolean;
   audioUrl: string;
@@ -15,6 +16,7 @@ export interface Track {
   genre?: string;
   tags?: string[];
   plays?: number;
+  sales?: number;
 }
 
 interface PlayerStore {
@@ -27,13 +29,16 @@ interface PlayerStore {
   playNext: () => void;
   playPrev: () => void;
   setQueue: (tracks: Track[]) => void;
+  setCurrentTrack: (track: Track | null) => void;
 }
 
 export const usePlayerStore = create<PlayerStore>((set, get) => ({
   currentTrack: null,
   isPlaying: false,
   queue: [],
-  
+
+  setCurrentTrack: (track) => set({ currentTrack: track }),
+
   play: (track, newQueue) => {
     set((state) => {
        // If a new queue is provided, use it. Otherwise, keep existing queue or initialize with single track

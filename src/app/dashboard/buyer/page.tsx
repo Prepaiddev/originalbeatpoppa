@@ -76,10 +76,10 @@ export default function BuyerDashboard() {
 
   const quickActions = [
     { icon: ShoppingBag, label: 'My Orders', sub: `${stats.orders} purchases`, href: '/dashboard/buyer/orders', color: 'text-primary' },
+    { icon: Music, label: 'My Playlists', sub: 'Your collections', href: '/dashboard/buyer/playlists', color: 'text-purple-400' },
     { icon: Heart, label: 'Favorites', sub: `${stats.favorites} saved beats`, href: '/dashboard/buyer/favorites', color: 'text-red-500' },
     { icon: Users, label: 'Following', sub: `${stats.following} creators`, href: '/dashboard/buyer/following', color: 'text-blue-400' },
     { icon: Download, label: 'Downloads', sub: `${stats.orders} files`, href: '/dashboard/buyer/orders', color: 'text-green-500' },
-    { icon: MessageSquare, label: 'Forum & Chat', sub: 'Coming Soon', href: '#', color: 'text-purple-500', isComingSoon: true },
     { icon: Settings, label: 'Account Settings', sub: 'Profile, email, password', href: '/profile/edit', color: 'text-zinc-400' },
   ];
 

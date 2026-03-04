@@ -125,17 +125,20 @@ export default function AdminAnalyticsPage() {
         // Group by beat_id and count
         const beatSales: Record<string, { title: string, artist: string, sales: number, revenue: number }> = {};
         topBeatsData?.forEach(order => {
-          if (order.beat_id && order.beats) {
+          // Supabase might return these as arrays depending on relationship definition
+          const beat = Array.isArray(order.beats) ? order.beats[0] : order.beats;
+          if (order.beat_id && beat) {
+            const profile = Array.isArray(beat.profiles) ? beat.profiles[0] : beat.profiles;
             if (!beatSales[order.beat_id]) {
               beatSales[order.beat_id] = {
-                title: order.beats.title,
-                artist: order.beats.profiles?.display_name || 'Unknown',
+                title: beat.title,
+                artist: profile?.display_name || 'Unknown',
                 sales: 0,
                 revenue: 0
               };
             }
             beatSales[order.beat_id].sales += 1;
-            beatSales[order.beat_id].revenue += order.beats.price || 0;
+            beatSales[order.beat_id].revenue += beat.price || 0;
           }
         });
 
