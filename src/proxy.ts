@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const DEFAULT_SECRET_PATH = 'beatpoppa-secured';
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: req.headers,

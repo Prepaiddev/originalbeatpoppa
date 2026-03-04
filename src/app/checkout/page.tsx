@@ -435,7 +435,7 @@ export default function CheckoutPage() {
                     <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest text-center">Complete purchase via PayPal</p>
                     <PayPalButtons 
                       style={{ layout: "vertical", shape: "rect", color: "blue" }}
-                      createOrder: async () => {
+                      createOrder={async () => {
                         const order = await createBaseOrder();
                         setPendingOrderId(order.id);
                         const { data } = await axios.post('/api/payments/paypal/create-order', {
@@ -444,15 +444,15 @@ export default function CheckoutPage() {
                           orderId: order.id
                         });
                         return data.id;
-                      },
-                      onApprove: async (data, actions) => {
+                      }}
+                      onApprove={async (data, actions) => {
                         const response = await axios.post('/api/payments/paypal/capture-order', {
                           orderID: data.orderID
                         });
                         if (response.data.status === 'success') {
                           await completeOrderUI(pendingOrderId || 'paypal_order', data.orderID);
                         }
-                      }
+                      }}
                     />
                   </div>
                 </PayPalScriptProvider>
