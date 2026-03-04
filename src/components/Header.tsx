@@ -112,8 +112,14 @@ export default function Header() {
                   />
                 </div>
               ) : (
-                <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-primary">
-                  <Play fill="currentColor" size={24} className="md:size-[32px]" />
+                <div className="w-8 h-8 md:w-10 md:h-10 flex items-center justify-center">
+                  <div className="relative w-6 h-6 md:w-8 md:h-8 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-primary/20 rounded-lg rotate-45 animate-pulse" />
+                    <div className="absolute inset-0 bg-primary/10 rounded-lg -rotate-12 animate-pulse delay-75" />
+                    <div className="relative z-10 w-full h-full bg-primary rounded-lg flex items-center justify-center shadow-lg shadow-primary/40">
+                      <Play fill="white" size={14} className="md:size-[18px] ml-0.5" />
+                    </div>
+                  </div>
                 </div>
               )}
             </Link>
