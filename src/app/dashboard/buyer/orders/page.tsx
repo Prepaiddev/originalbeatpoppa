@@ -26,18 +26,41 @@ export default function MyOrdersPage() {
       if (!user) return;
       try {
         const { data, error } = await supabase
-          .from('order_items')
+          .from('orders')
           .select(`
-            *,
-            orders!inner(id, created_at, status),
-            beats(id, title, cover_url, audio_url, profiles(display_name)),
-            bundles(id, title, cover_url, creator_id, profiles:creator_id(display_name))
+            id,
+            created_at,
+            status,
+            total_amount,
+            payment_provider,
+            transaction_id,
+            order_items(
+              id,
+              beat_id,
+              license_type,
+              price,
+              beats(
+                id,
+                title,
+                cover_url,
+                audio_url,
+                profiles:artist_id(display_name)
+              )
+            )
           `)
-          .eq('orders.buyer_id', user.id)
-          .order('created_at', { ascending: false, foreignTable: 'orders' });
+          .eq('buyer_id', user.id)
+          .order('created_at', { ascending: false });
 
         if (error) throw error;
-        setOrders(data || []);
+
+        const flattened: any[] = [];
+        (data || []).forEach((o: any) => {
+          (o.order_items || []).forEach((i: any) => {
+            flattened.push({ ...i, order: o });
+          });
+        });
+
+        setOrders(flattened);
       } catch (error) {
         console.error('Error fetching orders:', error);
       } finally {
@@ -48,14 +71,40 @@ export default function MyOrdersPage() {
     fetchOrders();
   }, [user?.id]);
 
-  const handleDownloadLicense = (item: any) => {
-    alert(`Downloading ${item.license_type} License for "${item.beats?.title}"...`);
-    // Logic to generate/download PDF would go here
+  const downloadBlob = async (res: Response, filename: string) => {
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   };
 
-  const handleViewInvoice = (orderId: string) => {
-    alert(`Viewing Invoice #${orderId.slice(0, 8)}...`);
-    // Logic to open invoice view
+  const handleDownloadLicense = async (orderItemId: string, title?: string) => {
+    const res = await fetch(`/api/licenses/${orderItemId}`);
+    if (!res.ok) return;
+    await downloadBlob(res, `${(title || 'License').replaceAll('/', '-')}_License.pdf`);
+  };
+
+  const handleDownloadBeat = async (orderId: string, orderItemId: string, title?: string) => {
+    const res = await fetch(`/api/downloads/${orderId}`);
+    const json = await res.json();
+    if (!res.ok) return;
+    const link = (json?.links || []).find((l: any) => l.order_item_id === orderItemId);
+    if (link?.download_url) {
+      window.open(link.download_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (link?.download_url === null) return;
+  };
+
+  const handleViewInvoice = async (orderId: string) => {
+    const res = await fetch(`/api/invoices/${orderId}`);
+    if (!res.ok) return;
+    await downloadBlob(res, `Invoice_${orderId.slice(0, 8)}.pdf`);
   };
 
   if (loading) {
@@ -87,10 +136,10 @@ export default function MyOrdersPage() {
         ) : (
           <div className="space-y-4">
             {orders.map((item) => {
-              const isBundle = !!item.bundle_id;
-              const title = isBundle ? item.bundles?.title : item.beats?.title;
-              const coverUrl = isBundle ? item.bundles?.cover_url : item.beats?.cover_url;
-              const artist = isBundle ? (item.bundles?.profiles?.display_name) : (item.beats?.profiles?.display_name);
+              const title = item.beats?.title;
+              const coverUrl = item.beats?.cover_url;
+              const artist = item.beats?.profiles?.display_name;
+              const order = item.order;
 
               return (
                 <div key={item.id} className="bg-zinc-900 p-6 rounded-xl border border-zinc-800 flex flex-col md:flex-row items-center gap-6 group hover:border-zinc-700 transition-colors">
@@ -101,11 +150,6 @@ export default function MyOrdersPage() {
                       fill 
                       className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
-                    {isBundle && (
-                      <div className="absolute top-2 left-2 bg-primary text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest">
-                        Bundle
-                      </div>
-                    )}
                   </div>
                   
                   <div className="flex-1 text-center md:text-left min-w-0 w-full">
@@ -114,37 +158,42 @@ export default function MyOrdersPage() {
                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs text-zinc-400">
                       <span className="flex items-center gap-1">
                         <ShoppingBag size={14} className="text-zinc-600" />
-                        Purchased {new Date(item.orders.created_at).toLocaleDateString()}
+                        Purchased {new Date(order.created_at).toLocaleDateString()}
                       </span>
                       <span className="flex items-center gap-1">
                         <FileCheck size={14} className="text-zinc-600" />
-                        {isBundle ? 'Full Pack License' : `${item.license_type} License`}
+                        {`${item.license_type} License`}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto justify-center">
-                    {!isBundle && (
-                      <button 
-                        onClick={() => setReviewModal({ isOpen: true, beatId: item.beat_id, beatTitle: title })}
-                        className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Star size={16} />
-                        Review
-                      </button>
-                    )}
                     <button 
-                      onClick={() => handleDownloadLicense(item)}
+                      onClick={() => handleDownloadBeat(order.id, item.id, title)}
+                      className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+                    >
+                      <Download size={16} />
+                      Download
+                    </button>
+                    <button 
+                      onClick={() => handleDownloadLicense(item.id, title)}
                       className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
                     >
                       <Download size={16} />
                       License
                     </button>
+                    <button
+                      onClick={() => handleViewInvoice(order.id)}
+                      className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
+                    >
+                      <FileText size={16} />
+                      Receipt
+                    </button>
                     <Link 
-                      href={isBundle ? `/bundle/${item.bundle_id}` : `/beat/${item.beat_id}`}
+                      href={`/beat/${item.beat_id}`}
                       className="flex-1 md:flex-none px-4 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
                     >
-                      {isBundle ? 'View Pack' : 'View Beat'}
+                      View Beat
                     </Link>
                   </div>
                 </div>

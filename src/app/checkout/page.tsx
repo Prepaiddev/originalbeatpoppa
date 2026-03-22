@@ -234,7 +234,7 @@ export default function CheckoutPage() {
   };
 
   const handlePaystackPayment = async (order: any) => {
-    const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'XOF', 'USD'];
+    const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'XOF'];
     const paystackCurrency = supported.includes(currency) ? currency : 'NGN';
 
     const publicKey = paymentSettings.providers.paystack.publicKey;
@@ -375,6 +375,12 @@ export default function CheckoutPage() {
           Thank you for your purchase. Your beats are now available for download in your dashboard.
         </p>
         <div className="flex gap-4">
+          <button 
+            onClick={() => router.push('/dashboard/buyer/downloads')}
+            className="px-8 py-3 bg-primary text-white font-bold rounded-full hover:bg-red-600 transition-colors"
+          >
+            Downloads
+          </button>
           <button 
             onClick={() => router.push('/dashboard/buyer/orders')}
             className="px-8 py-3 bg-primary text-white font-bold rounded-full hover:bg-red-600 transition-colors"
