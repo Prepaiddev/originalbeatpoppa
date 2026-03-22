@@ -456,87 +456,22 @@ export default function CheckoutPage() {
                 />
               </div>
 
-              {/* Payment Methods Selection */}
-              <div>
-                <label className="block text-xs font-bold text-zinc-500 uppercase mb-3">Payment Method</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {paymentMethods.map((method) => (
-                    <button
-                      key={method.id}
-                      type="button"
-                      onClick={() => setPaymentMethod(method.id)}
-                      className={clsx(
-                        "flex flex-col items-center justify-center p-4 rounded-xl border transition-all h-24",
-                        paymentMethod === method.id 
-                          ? "bg-primary/10 border-primary" 
-                          : "bg-zinc-900 border-zinc-800 hover:bg-zinc-800"
-                      )}
-                    >
-                      <div className="relative w-full h-8 mb-2">
-                        <NextImage 
-                          src={method.logo} 
-                          alt={method.name} 
-                          fill
-                          className="object-contain" 
-                          style={{ 
-                            filter: (paymentMethod !== method.id) 
-                              ? 'brightness(0) invert(1)' 
-                              : 'none'
-                          }}
-                        />
-                      </div>
-                      <span className={clsx(
-                        "text-[10px] font-bold uppercase tracking-wider",
-                        paymentMethod === method.id ? "text-primary" : "text-zinc-500"
-                      )}>
-                        {method.name}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Provider Specific Forms */}
-              {paymentMethod === 'card' && stripePromise && (
-                <Elements stripe={stripePromise}>
-                  <StripeForm 
-                    onStart={() => setIsProcessing(true)}
-                    onComplete={completeOrderUI}
-                    onError={(msg: string) => setPaymentError(msg)}
-                    orderCreator={createBaseOrder}
-                    amount={total}
-                    currency={currency}
-                    customerName={`${firstName} ${lastName}`}
-                    customerEmail={email}
-                  />
-                </Elements>
-              )}
-
-              {paymentMethod === 'paystack' && (
+              {total <= 0 ? (
                 <div className="space-y-4">
                   <div className="p-6 border border-zinc-800 rounded-xl bg-zinc-900/50 text-center">
-                    <p className="text-zinc-400 text-sm mb-4 font-medium">
-                      You will be redirected to Paystack to complete your secure payment.
+                    <p className="text-zinc-400 text-sm font-medium">
+                      This order is free. Complete checkout to unlock your downloads, license, and receipt.
                     </p>
-                    <div className="w-full h-12 relative opacity-90 hover:opacity-100 transition-opacity">
-                      <NextImage 
-                        src="https://upload.wikimedia.org/wikipedia/commons/0/0b/Paystack_Logo.png" 
-                        alt="Paystack" 
-                        fill
-                        className="object-contain" 
-                        style={{ filter: 'brightness(0) invert(1)' }}
-                      />
-                    </div>
                   </div>
-                  <button 
+                  <button
                     onClick={async () => {
                       setPaymentError(null);
                       setIsProcessing(true);
                       try {
                         const order = await createBaseOrder();
-                        await handlePaystackPayment(order);
+                        await completeOrderUI(order.id, `FREE-${Date.now()}`);
                       } catch (err: any) {
-                        const msg = err?.message || 'Unable to start Paystack checkout. Please try again.';
+                        const msg = err?.message || 'Unable to complete free checkout. Please try again.';
                         setPaymentError(msg);
                         setIsProcessing(false);
                       }
@@ -544,39 +479,132 @@ export default function CheckoutPage() {
                     disabled={isProcessing || !email || !firstName}
                     className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/25 hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {isProcessing ? 'Opening Paystack...' : `Pay ${formatPrice(total, currency, exchangeRates)} with Paystack`}
+                    {isProcessing ? 'Completing...' : 'Get Free Download'}
                   </button>
                 </div>
-              )}
-
-              {paymentMethod === 'paypal' && paymentSettings.providers.paypal.enabled && paymentSettings.providers.paypal.clientId && (
-                <PayPalScriptProvider options={{ clientId: paymentSettings.providers.paypal.clientId, currency: currency.toUpperCase() }}>
-                  <div className="space-y-4">
-                    <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest text-center">Complete purchase via PayPal</p>
-                    <PayPalButtons 
-                      style={{ layout: "vertical", shape: "rect", color: "blue" }}
-                      createOrder={async () => {
-                        const order = await createBaseOrder();
-                        setPendingOrderId(order.id);
-                        const { data } = await axios.post('/api/payments/paypal/create-order', {
-                          amount: total,
-                          currency: currency,
-                          orderId: order.id
-                        });
-                        return data.id;
-                      }}
-                      onApprove={async (data, actions) => {
-                        const response = await axios.post('/api/payments/paypal/capture-order', {
-                          orderID: data.orderID,
-                          orderId: pendingOrderId
-                        });
-                        if (response.data.status === 'success') {
-                          await completeOrderUI(pendingOrderId || 'paypal_order', data.orderID);
-                        }
-                      }}
-                    />
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-500 uppercase mb-3">Payment Method</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {paymentMethods.map((method) => (
+                        <button
+                          key={method.id}
+                          type="button"
+                          onClick={() => setPaymentMethod(method.id)}
+                          className={clsx(
+                            "flex flex-col items-center justify-center p-4 rounded-xl border transition-all h-24",
+                            paymentMethod === method.id 
+                              ? "bg-primary/10 border-primary" 
+                              : "bg-zinc-900 border-zinc-800 hover:bg-zinc-800"
+                          )}
+                        >
+                          <div className="relative w-full h-8 mb-2">
+                            <NextImage 
+                              src={method.logo} 
+                              alt={method.name} 
+                              fill
+                              className="object-contain" 
+                              style={{ 
+                                filter: (paymentMethod !== method.id) 
+                                  ? 'brightness(0) invert(1)' 
+                                  : 'none'
+                              }}
+                            />
+                          </div>
+                          <span className={clsx(
+                            "text-[10px] font-bold uppercase tracking-wider",
+                            paymentMethod === method.id ? "text-primary" : "text-zinc-500"
+                          )}>
+                            {method.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </PayPalScriptProvider>
+
+                  {paymentMethod === 'card' && stripePromise && (
+                    <Elements stripe={stripePromise}>
+                      <StripeForm 
+                        onStart={() => setIsProcessing(true)}
+                        onComplete={completeOrderUI}
+                        onError={(msg: string) => setPaymentError(msg)}
+                        orderCreator={createBaseOrder}
+                        amount={total}
+                        currency={currency}
+                        customerName={`${firstName} ${lastName}`}
+                        customerEmail={email}
+                      />
+                    </Elements>
+                  )}
+
+                  {paymentMethod === 'paystack' && (
+                    <div className="space-y-4">
+                      <div className="p-6 border border-zinc-800 rounded-xl bg-zinc-900/50 text-center">
+                        <p className="text-zinc-400 text-sm mb-4 font-medium">
+                          You will be redirected to Paystack to complete your secure payment.
+                        </p>
+                        <div className="w-full h-12 relative opacity-90 hover:opacity-100 transition-opacity">
+                          <NextImage 
+                            src="https://upload.wikimedia.org/wikipedia/commons/0/0b/Paystack_Logo.png" 
+                            alt="Paystack" 
+                            fill
+                            className="object-contain" 
+                            style={{ filter: 'brightness(0) invert(1)' }}
+                          />
+                        </div>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          setPaymentError(null);
+                          setIsProcessing(true);
+                          try {
+                            const order = await createBaseOrder();
+                            await handlePaystackPayment(order);
+                          } catch (err: any) {
+                            const msg = err?.message || 'Unable to start Paystack checkout. Please try again.';
+                            setPaymentError(msg);
+                            setIsProcessing(false);
+                          }
+                        }}
+                        disabled={isProcessing || !email || !firstName}
+                        className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/25 hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isProcessing ? 'Opening Paystack...' : `Pay ${formatPrice(total, currency, exchangeRates)} with Paystack`}
+                      </button>
+                    </div>
+                  )}
+
+                  {paymentMethod === 'paypal' && paymentSettings.providers.paypal.enabled && paymentSettings.providers.paypal.clientId && (
+                    <PayPalScriptProvider options={{ clientId: paymentSettings.providers.paypal.clientId, currency: currency.toUpperCase() }}>
+                      <div className="space-y-4">
+                        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest text-center">Complete purchase via PayPal</p>
+                        <PayPalButtons 
+                          style={{ layout: "vertical", shape: "rect", color: "blue" }}
+                          createOrder={async () => {
+                            const order = await createBaseOrder();
+                            setPendingOrderId(order.id);
+                            const { data } = await axios.post('/api/payments/paypal/create-order', {
+                              amount: total,
+                              currency: currency,
+                              orderId: order.id
+                            });
+                            return data.id;
+                          }}
+                          onApprove={async (data, actions) => {
+                            const response = await axios.post('/api/payments/paypal/capture-order', {
+                              orderID: data.orderID,
+                              orderId: pendingOrderId
+                            });
+                            if (response.data.status === 'success') {
+                              await completeOrderUI(pendingOrderId || 'paypal_order', data.orderID);
+                            }
+                          }}
+                        />
+                      </div>
+                    </PayPalScriptProvider>
+                  )}
+                </>
               )}
 
               {paymentError && (

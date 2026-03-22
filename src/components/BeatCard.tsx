@@ -235,6 +235,10 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
+                  if ((beat.price ?? 0) <= 0) {
+                    router.push(`/beat/${beat.id}`);
+                    return;
+                  }
                   addToCart(beat, 'beat');
                   router.push('/cart');
                 }}
@@ -251,6 +255,10 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
             <button 
               onClick={(e) => {
                 e.stopPropagation();
+                if ((beat.price ?? 0) <= 0) {
+                  router.push(`/beat/${beat.id}`);
+                  return;
+                }
                 addToCart(beat, 'beat');
               }}
               className={clsx(
@@ -348,6 +356,10 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
+                  if ((beat.price ?? 0) <= 0) {
+                    router.push(`/beat/${beat.id}`);
+                    return;
+                  }
                   addToCart(beat, 'beat');
                   router.push('/cart');
                 }}
@@ -371,7 +383,13 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
                   <Heart size={16} fill={isFavorited ? "currentColor" : "none"} />
                 </button>
                 <button 
-                  onClick={() => addToCart(beat, 'beat')}
+                  onClick={() => {
+                    if ((beat.price ?? 0) <= 0) {
+                      router.push(`/beat/${beat.id}`);
+                      return;
+                    }
+                    addToCart(beat, 'beat');
+                  }}
                   className={clsx(
                     "w-9 h-9 rounded-full flex items-center justify-center border transition-all",
                     isInCart ? "border-primary bg-primary text-white shadow-lg shadow-primary/30" : "border-zinc-800/50 bg-zinc-900/50 text-zinc-400 hover:border-zinc-600 hover:text-white"
