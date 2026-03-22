@@ -32,6 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
     }
     const auth = await createClient();
     const admin = createAdminClient();
+    const db: any = admin || auth;
     
     // 1. Verify user authentication
     const { data: { user } } = await auth.auth.getUser();
@@ -39,11 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!admin) {
-      return NextResponse.json({ error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 });
-    }
-
-    const { data: order, error: orderError } = await admin
+    const { data: order, error: orderError } = await db
       .from('orders')
       .select('status, buyer_id')
       .eq('id', orderId)
@@ -55,8 +52,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
 
     let isAdmin = false;
     if (order.buyer_id !== user.id) {
-      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
-      isAdmin = profile?.role === 'admin';
+      if (admin) {
+        const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
+        isAdmin = profile?.role === 'admin';
+      } else {
+        isAdmin = user.user_metadata?.role === 'admin';
+      }
       if (!isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -67,13 +68,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
     let items: any[] | null = null;
     let itemsError: any = null;
 
-    const withMaster = await admin
+    const withMaster = await db
       .from('order_items')
       .select('id, beat_id, beats(title, master_url, audio_url)')
       .eq('order_id', orderId);
 
     if (withMaster.error && String(withMaster.error.message || '').toLowerCase().includes('master_url')) {
-      const withoutMaster = await admin
+      const withoutMaster = await db
         .from('order_items')
         .select('id, beat_id, beats(title, audio_url)')
         .eq('order_id', orderId);
@@ -119,7 +120,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
           };
         }
         
-        const { data } = await admin.storage.from(bucket).createSignedUrl(path, 172800); 
+        const { data } = await db.storage.from(bucket).createSignedUrl(path, 172800); 
 
         return {
           order_item_id: item.id,

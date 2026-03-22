@@ -171,14 +171,13 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   }
   const auth = await createClient();
   const admin = createAdminClient();
+  const db: any = admin || auth;
 
   const { data: userData } = await auth.auth.getUser();
   const user = userData?.user;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  if (!admin) return NextResponse.json({ error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 });
-
-  const { data: order, error: orderError } = await admin
+  const { data: order, error: orderError } = await db
     .from('orders')
     .select('id, buyer_id, created_at, status, total_amount, payment_provider, transaction_id')
     .eq('id', orderId)
@@ -187,15 +186,19 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   if (orderError || !order) return NextResponse.json({ error: orderError?.message || 'Order not found' }, { status: 404 });
 
   if (order.buyer_id !== user.id) {
-    const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (admin) {
+      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
+      if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    } else if (user.user_metadata?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
-  const { data: buyerProfile } = await admin.from('profiles').select('display_name, email').eq('id', order.buyer_id).maybeSingle();
+  const { data: buyerProfile } = await db.from('profiles').select('display_name, email').eq('id', order.buyer_id).maybeSingle();
   const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
   const buyerEmail = buyerProfile?.email || '';
 
-  const { data: itemsData, error: itemsError } = await admin
+  const { data: itemsData, error: itemsError } = await db
     .from('order_items')
     .select('license_type, price, beats(title)')
     .eq('order_id', orderId);
@@ -209,7 +212,9 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   }));
 
   const licenseTypeIds = Array.from(new Set(items.map((i) => i.licenseType).filter((x) => typeof x === 'string' && x.length > 0)));
-  const { data: licenseTypes } = await admin.from('license_types').select('id, name').in('id', licenseTypeIds);
+  const licenseTypes = licenseTypeIds.length
+    ? (await db.from('license_types').select('id, name').in('id', licenseTypeIds)).data
+    : [];
   const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
   const normalizedItems = items.map((i: any) => ({ ...i, licenseType: licenseTypeMap.get(i.licenseType) || i.licenseType }));
 

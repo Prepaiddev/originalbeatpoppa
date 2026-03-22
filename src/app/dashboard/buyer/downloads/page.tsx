@@ -76,14 +76,6 @@ export default function BuyerDownloadsPage() {
     setDownloadingId(orderItemId);
     setStatusModal({ isOpen: false, type: 'error', title: '', message: '' });
 
-    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
-    if (popup) {
-      try {
-        popup.document.title = 'Preparing download';
-        popup.document.body.innerHTML = '<div style="font-family: system-ui; padding: 24px;"><h2>Preparing your download…</h2><p>You can close this tab if it stays here for more than a few seconds.</p></div>';
-      } catch {}
-    }
-
     try {
       const res = await fetch(`/api/downloads/${orderId}`);
       const json = await res.json();
@@ -91,7 +83,6 @@ export default function BuyerDownloadsPage() {
       if (!res.ok) {
         const msg = json?.error || 'Unable to generate download link. Please try again.';
         setStatusModal({ isOpen: true, type: 'error', title: 'Download Failed', message: msg });
-        if (popup) popup.close();
         return;
       }
 
@@ -103,19 +94,18 @@ export default function BuyerDownloadsPage() {
           title: 'File Not Available',
           message: 'This beat file is not available for download yet.'
         });
-        if (popup) popup.close();
         return;
       }
-
-      if (popup) {
-        popup.location.href = link.download_url;
-      } else {
-        window.location.href = link.download_url;
+      const fileRes = await fetch(link.download_url);
+      if (!fileRes.ok) {
+        setStatusModal({ isOpen: true, type: 'error', title: 'Download Failed', message: 'Unable to fetch file data.' });
+        return;
       }
+      const safeTitle = (title || link.title || 'Beat').replaceAll('/', '-').replaceAll('\\', '-');
+      await downloadBlob(fileRes, `${safeTitle}.mp3`);
     } catch (err: any) {
       const msg = err?.message || 'Download failed. Please try again.';
       setStatusModal({ isOpen: true, type: 'error', title: 'Download Failed', message: msg });
-      if (popup) popup.close();
     } finally {
       setDownloadingId(null);
     }

@@ -306,14 +306,13 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   }
   const auth = await createClient();
   const admin = createAdminClient();
+  const db: any = admin || auth;
 
   const { data: userData } = await auth.auth.getUser();
   const user = userData?.user;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  if (!admin) return NextResponse.json({ error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 });
-
-  const { data: item, error: itemError } = await admin
+  const { data: item, error: itemError } = await db
     .from('order_items')
     .select('id, order_id, beat_id, license_type, price, orders(buyer_id, status, created_at, transaction_id), beats(title, bpm, key, profiles:artist_id(display_name))')
     .eq('id', orderItemId)
@@ -323,17 +322,21 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
 
   const buyerId = (item as any)?.orders?.buyer_id;
   if (buyerId !== user.id) {
-    const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (admin) {
+      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
+      if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    } else if (user.user_metadata?.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
-  const { data: buyerProfile } = await admin.from('profiles').select('display_name, email').eq('id', buyerId).maybeSingle();
+  const { data: buyerProfile } = await db.from('profiles').select('display_name, email').eq('id', buyerId).maybeSingle();
 
   const beatTitle = (item as any)?.beats?.title || 'Beat';
   const producerName = (item as any)?.beats?.profiles?.display_name || 'Producer';
   const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
   const rawLicenseTypeId = (item as any)?.license_type || '';
-  const { data: licenseTypeRow } = await admin
+  const { data: licenseTypeRow } = await db
     .from('license_types')
     .select('name, description, features')
     .eq('id', rawLicenseTypeId)
@@ -369,19 +372,21 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
 
   const signature = buildSignature(payload);
 
-  await admin
-    .from('licenses')
-    .upsert(
-      {
-        order_item_id: orderItemId,
-        beat_id: (item as any)?.beat_id,
-        license_type: licenseType,
-        verification_code: code,
-        cryptographic_signature: signature,
-        metadata: { ...payload },
-      },
-      { onConflict: 'verification_code' }
-    );
+  try {
+    await db
+      .from('licenses')
+      .upsert(
+        {
+          order_item_id: orderItemId,
+          beat_id: (item as any)?.beat_id,
+          license_type: licenseType,
+          verification_code: code,
+          cryptographic_signature: signature,
+          metadata: { ...payload },
+        },
+        { onConflict: 'verification_code' }
+      );
+  } catch {}
 
   const pdfBuffer = await buildLicensePdf({
     code,
