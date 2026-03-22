@@ -137,26 +137,39 @@ export default function CheckoutPage() {
       }
     }
 
-    // Create Order
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        buyer_id: user.id,
-        total_amount: total,
-        subtotal_amount: subtotal,
-        discount_amount: subtotal - total,
-        coupon_code: coupon?.code || null,
-        currency: currency,
-        status: 'pending',
-        payment_provider: paymentMethod === 'card' ? 'stripe' : paymentMethod
-      })
-      .select()
-      .single();
+    let orderInsert: Record<string, unknown> = {
+      buyer_id: user.id,
+      total_amount: total,
+      subtotal_amount: subtotal,
+      discount_amount: subtotal - total,
+      coupon_code: coupon?.code || null,
+      currency: currency,
+      status: 'pending',
+      payment_provider: paymentMethod === 'card' ? 'stripe' : paymentMethod
+    };
 
-    if (orderError) throw orderError;
+    let order: any = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { data, error } = await supabase.from('orders').insert(orderInsert).select().single();
+      if (!error) {
+        order = data;
+        break;
+      }
+
+      const message = (error as any)?.message || '';
+      const match = /Could not find the '([^']+)' column/i.exec(message);
+      if (match?.[1] && Object.prototype.hasOwnProperty.call(orderInsert, match[1])) {
+        const { [match[1]]: _, ...rest } = orderInsert;
+        orderInsert = rest;
+        continue;
+      }
+      throw error;
+    }
+
+    if (!order) throw new Error('Failed to create order. Please try again.');
 
     // Create Order Items
-    const orderItems = items.map(item => ({
+    let orderItems = items.map(item => ({
       order_id: order.id,
       beat_id: item.type === 'beat' ? item.id : null,
       bundle_id: item.type === 'bundle' ? item.id : null,
@@ -164,11 +177,19 @@ export default function CheckoutPage() {
       price: item.price
     }));
 
-    const { error: itemsError } = await supabase
-      .from('order_items')
-      .insert(orderItems);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { error } = await supabase.from('order_items').insert(orderItems);
+      if (!error) break;
 
-    if (itemsError) throw itemsError;
+      const message = (error as any)?.message || '';
+      const match = /Could not find the '([^']+)' column/i.exec(message);
+      if (match?.[1]) {
+        const col = match[1];
+        orderItems = orderItems.map(({ [col]: _, ...rest }) => rest as any);
+        continue;
+      }
+      throw error;
+    }
 
     return order;
   };
@@ -185,16 +206,26 @@ export default function CheckoutPage() {
 
     // Update order status and transaction ID
     if (orderId !== 'paypal_order') {
-      await supabase
-        .from('orders')
-        .update({ 
-          status: 'completed', 
-          transaction_id: trxId,
-          // Re-calculate discount based on actual subtotal/total
-          discount_amount: subtotal - total,
-          coupon_code: coupon?.code || null
-        })
-        .eq('id', orderId);
+      let updateData: Record<string, unknown> = { 
+        status: 'completed', 
+        transaction_id: trxId,
+        discount_amount: subtotal - total,
+        coupon_code: coupon?.code || null
+      };
+
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { error } = await supabase.from('orders').update(updateData).eq('id', orderId);
+        if (!error) break;
+
+        const message = (error as any)?.message || '';
+        const match = /Could not find the '([^']+)' column/i.exec(message);
+        if (match?.[1] && Object.prototype.hasOwnProperty.call(updateData, match[1])) {
+          const { [match[1]]: _, ...rest } = updateData;
+          updateData = rest;
+          continue;
+        }
+        throw error;
+      }
     }
     
     setIsSuccess(true);
