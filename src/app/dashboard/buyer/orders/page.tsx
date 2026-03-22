@@ -120,7 +120,7 @@ export default function MyOrdersPage() {
       <main className="pt-[80px] max-w-5xl mx-auto px-4">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">My Orders</h1>
-          <p className="text-zinc-400">Manage your purchases, downloads, and licenses</p>
+          <p className="text-zinc-400">Manage your purchases, licenses, and receipts</p>
         </div>
 
         {orders.length === 0 ? (

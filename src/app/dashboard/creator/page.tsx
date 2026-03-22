@@ -90,8 +90,7 @@ function CreatorDashboardContent() {
           .from('order_items')
           .select(`
             price, 
-            created_at, 
-            orders!inner(status), 
+            orders!inner(status, created_at), 
             beats(id, title, artist_id, cover_url, plays, likes_count, comments_count),
             bundles(id, title, creator_id, cover_url, plays, likes_count, comments_count)
           `)
@@ -206,7 +205,7 @@ function CreatorDashboardContent() {
 
         // 4. Process Recent Sales
         const sortedSales = [...earningsRes.data]
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .sort((a, b) => new Date(b.orders.created_at).getTime() - new Date(a.orders.created_at).getTime())
           .slice(0, 5)
           .map((sale: any) => {
             const isBundle = !!sale.bundles;
@@ -214,7 +213,7 @@ function CreatorDashboardContent() {
               id: sale.id,
               beat_title: isBundle ? sale.bundles?.title : sale.beats?.title,
               price: sale.price,
-              date: sale.created_at,
+              date: sale.orders.created_at,
               status: sale.orders.status,
               type: isBundle ? 'bundle' : 'beat'
             };
@@ -228,7 +227,7 @@ function CreatorDashboardContent() {
         if (timeRange === '90d') daysToFetch = 90;
         if (timeRange === 'all') {
           const oldestSale = earningsRes.data.reduce((oldest, sale) => {
-            const saleDate = new Date(sale.created_at);
+            const saleDate = new Date(sale.orders.created_at);
             return saleDate < oldest ? saleDate : oldest;
           }, new Date());
           daysToFetch = Math.max(7, Math.ceil((new Date().getTime() - oldestSale.getTime()) / (1000 * 60 * 60 * 24)));
@@ -253,7 +252,7 @@ function CreatorDashboardContent() {
         const startOfPreviousPeriod = subDays(now, daysToFetch * 2);
 
         earningsRes.data.forEach((item: any) => {
-          const itemDate = new Date(item.created_at);
+          const itemDate = new Date(item.orders.created_at);
           const isBundle = !!item.bundles;
 
           // Revenue breakdown

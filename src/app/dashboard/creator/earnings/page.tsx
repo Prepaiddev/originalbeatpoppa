@@ -35,10 +35,11 @@ export default function EarningsPage() {
           .from('order_items')
           .select(`
             price,
-            created_at,
+            orders!inner(status, created_at),
             beats!inner(artist_id)
           `)
-          .eq('beats.artist_id', user.id);
+          .eq('beats.artist_id', user.id)
+          .eq('orders.status', 'completed');
 
         if (error) throw error;
 
@@ -66,7 +67,7 @@ export default function EarningsPage() {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const thisMonth = soldItems
-          ?.filter(item => new Date(item.created_at) >= startOfMonth)
+          ?.filter(item => new Date(item.orders.created_at) >= startOfMonth)
           .reduce((sum, item) => sum + item.price, 0) || 0;
 
         // Available for Payout = Total - (Completed + Pending)
@@ -359,7 +360,7 @@ export default function EarningsPage() {
               <tbody className="divide-y divide-zinc-800">
                 {transactions.map((tx, i) => (
                   <tr key={i} className="hover:bg-zinc-800/50 transition-colors">
-                    <td className="px-6 py-4 text-zinc-400">{new Date(tx.created_at).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 text-zinc-400">{new Date(tx.orders.created_at).toLocaleDateString()}</td>
                     <td className="px-6 py-4 font-medium">Beat Sale</td>
                     <td className="px-6 py-4 text-right font-bold text-green-500">+{formatPrice(tx.price, currency, exchangeRates)}</td>
                     <td className="px-6 py-4 text-right">

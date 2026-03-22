@@ -54,6 +54,8 @@ function UploadBeatContent() {
   const [availableLicenses, setAvailableLicenses] = useState<any[]>([]);
   const [selectedLicenses, setSelectedLicenses] = useState<Record<string, { enabled: boolean, price: number }>>({});
   const [isFree, setIsFree] = useState(false);
+  const [preFreeLicenses, setPreFreeLicenses] = useState<Record<string, { enabled: boolean, price: number }> | null>(null);
+  const [commissionPercent, setCommissionPercent] = useState<number>(0);
 
   const audioInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -87,6 +89,60 @@ function UploadBeatContent() {
     }
     fetchLicenses();
   }, [editId]);
+
+  useEffect(() => {
+    async function fetchCommission() {
+      try {
+        const { data } = await supabase
+          .from('platform_settings')
+          .select('value')
+          .eq('key', 'payment_config')
+          .maybeSingle();
+
+        const value = (data?.value as any) || {};
+        const pct = typeof value?.commission_percentage === 'number' ? value.commission_percentage : Number(value?.commission_percentage || 0);
+        setCommissionPercent(Number.isFinite(pct) ? pct : 0);
+      } catch {
+        setCommissionPercent(0);
+      }
+    }
+    fetchCommission();
+  }, []);
+
+  useEffect(() => {
+    if (!editId) return;
+    if (!availableLicenses.length) return;
+    setSelectedLicenses((prev) => {
+      const next: Record<string, { enabled: boolean; price: number }> = { ...prev };
+      availableLicenses.forEach((l: any) => {
+        if (!next[l.id]) next[l.id] = { enabled: false, price: l.default_price };
+        if (typeof next[l.id].price !== 'number' || Number.isNaN(next[l.id].price)) next[l.id].price = l.default_price;
+      });
+      return next;
+    });
+  }, [editId, availableLicenses.length]);
+
+  useEffect(() => {
+    if (!availableLicenses.length) return;
+
+    const cheapest = [...availableLicenses].sort((a: any, b: any) => (a.default_price || 0) - (b.default_price || 0))[0];
+    if (!cheapest) return;
+
+    if (isFree) {
+      setPreFreeLicenses((prev) => prev ?? selectedLicenses);
+      setSelectedLicenses((prev) => {
+        const next: Record<string, { enabled: boolean; price: number }> = { ...prev };
+        availableLicenses.forEach((l: any) => {
+          const basePrice = typeof next[l.id]?.price === 'number' ? next[l.id].price : l.default_price;
+          next[l.id] = { enabled: l.id === cheapest.id, price: l.id === cheapest.id ? 0 : basePrice };
+        });
+        return next;
+      });
+    } else if (preFreeLicenses) {
+      setSelectedLicenses(preFreeLicenses);
+      setPreFreeLicenses(null);
+    }
+  }, [isFree, availableLicenses.length]);
 
   // Load existing beat if editing
   useEffect(() => {
@@ -159,15 +215,23 @@ function UploadBeatContent() {
     const price = parseFloat(value);
     setSelectedLicenses(prev => ({
       ...prev,
-      [id]: { ...prev[id], price: isNaN(price) ? 0 : price }
+      [id]: { ...(prev[id] || { enabled: true, price: 0 }), price: isNaN(price) ? 0 : price }
     }));
   };
 
   const toggleLicense = (id: string) => {
-    setSelectedLicenses(prev => ({
-      ...prev,
-      [id]: { ...prev[id], enabled: !prev[id]?.enabled }
-    }));
+    if (isFree) return;
+    const license = availableLicenses.find((l: any) => l.id === id);
+    const defaultPrice = typeof license?.default_price === 'number' ? license.default_price : 0;
+    setSelectedLicenses((prev) => {
+      const current = prev[id];
+      const nextEnabled = !current?.enabled;
+      const nextPrice = typeof current?.price === 'number' ? current.price : defaultPrice;
+      return {
+        ...prev,
+        [id]: { enabled: nextEnabled, price: nextEnabled ? nextPrice : nextPrice }
+      };
+    });
   };
 
   const handleUpload = async () => {
@@ -245,12 +309,12 @@ function UploadBeatContent() {
       }
 
       // 3. Insert or Update Database
-      const selectedIds = Object.keys(selectedLicenses).filter(id => selectedLicenses[id].enabled);
+      const selectedIds = Object.keys(selectedLicenses).filter(id => selectedLicenses[id]?.enabled);
       if (selectedIds.length === 0 && !isFree) {
         throw new Error('Please select at least one license or set as free.');
       }
 
-      const startingPrice = isFree ? 0 : Math.min(...selectedIds.map(id => selectedLicenses[id].price));
+      const startingPrice = isFree ? 0 : Math.min(...selectedIds.map(id => selectedLicenses[id].price || 0));
 
       const beatData = {
           title: metadata.title,
@@ -310,12 +374,17 @@ function UploadBeatContent() {
         }
 
         // Insert new license selections
-        const licenseInserts = selectedIds.map(licenseTypeId => ({
-          beat_id: beatId,
-          license_type_id: licenseTypeId,
-          price: selectedLicenses[licenseTypeId].price,
-          is_active: true
-        }));
+        const licenseInserts = selectedIds.map((licenseTypeId) => {
+          const license = availableLicenses.find((l: any) => l.id === licenseTypeId);
+          const defaultPrice = typeof license?.default_price === 'number' ? license.default_price : 0;
+          const price = typeof selectedLicenses[licenseTypeId]?.price === 'number' ? selectedLicenses[licenseTypeId].price : defaultPrice;
+          return {
+            beat_id: beatId,
+            license_type_id: licenseTypeId,
+            price,
+            is_active: true
+          };
+        });
 
         if (licenseInserts.length > 0) {
           const { error: lError } = await supabase.from('beat_licenses').insert(licenseInserts);
@@ -523,6 +592,9 @@ function UploadBeatContent() {
                     Licensing & Pricing
                   </h3>
                   <p className="text-zinc-500 text-xs font-medium">Select which licenses you want to offer for this beat</p>
+                  <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mt-2">
+                    Marketplace commission: {commissionPercent.toFixed(2)}%
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-xl border border-zinc-800">
@@ -571,6 +643,14 @@ function UploadBeatContent() {
                             <p className="text-[10px] text-zinc-500 font-medium mt-0.5">
                               {license.features?.join(' • ')}
                             </p>
+                            <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mt-2">
+                              You earn: {formatPrice(
+                                (Number(selectedLicenses[license.id]?.price ?? license.default_price) || 0) * (1 - commissionPercent / 100),
+                                currency,
+                                exchangeRates,
+                                true
+                              )}
+                            </p>
                           </div>
                         </div>
 
@@ -598,7 +678,9 @@ function UploadBeatContent() {
                     <Music size={32} />
                   </div>
                   <h4 className="text-white font-black uppercase tracking-tight mb-2">Free Download Enabled</h4>
-                  <p className="text-zinc-500 text-sm max-w-xs mx-auto">Users will be able to download this beat for free. No licenses will be sold.</p>
+                  <p className="text-zinc-500 text-sm max-w-xs mx-auto">
+                    Users will be able to obtain this beat for free under the selected free license. Receipts and license certificates will still be available.
+                  </p>
                 </div>
               )}
             </div>

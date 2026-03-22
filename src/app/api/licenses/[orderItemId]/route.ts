@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import crypto from 'crypto';
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 
@@ -12,6 +12,51 @@ function buildSignature(payload: unknown) {
   const hash = crypto.createHash('sha256');
   hash.update(JSON.stringify(payload));
   return hash.digest('base64');
+}
+
+function wrapText(text: string, maxChars: number) {
+  const words = (text || '').split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const w of words) {
+    const next = current ? `${current} ${w}` : w;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function normalizeFeatureList(features: unknown): string[] {
+  if (!Array.isArray(features)) return [];
+  return features.map((f) => String(f)).filter(Boolean);
+}
+
+function buildRightsPreview(features: string[]) {
+  const f = features.map((x) => x.toLowerCase());
+  const yes: string[] = [];
+  const no: string[] = [];
+
+  const pushUnique = (arr: string[], value: string) => {
+    if (!arr.includes(value)) arr.push(value);
+  };
+
+  if (f.some((x) => x.includes('stream') || x.includes('spotify') || x.includes('apple music'))) pushUnique(yes, 'Streaming allowed');
+  if (f.some((x) => x.includes('commercial'))) pushUnique(yes, 'Commercial use allowed');
+  if (f.some((x) => x.includes('non-exclusive') || x.includes('non exclusive'))) pushUnique(yes, 'Non-exclusive rights');
+  if (f.some((x) => x.includes('exclusive'))) pushUnique(yes, 'Exclusive rights');
+  if (f.some((x) => x.includes('stems') || x.includes('wav'))) pushUnique(yes, 'Stems/WAV included');
+  if (f.some((x) => x.includes('resale') || x.includes('sell') || x.includes('ownership'))) pushUnique(no, 'No resale / ownership transfer');
+  if (f.some((x) => x.includes('content id') || x.includes('youtube'))) pushUnique(yes, 'Content ID safe usage');
+
+  if (yes.length === 0) pushUnique(yes, 'Use permitted under stated terms');
+  if (no.length === 0) pushUnique(no, 'No transfer of copyright ownership');
+
+  return { yes: yes.slice(0, 4), no: no.slice(0, 4) };
 }
 
 async function buildLicensePdf(args: {
@@ -35,33 +80,49 @@ async function buildLicensePdf(args: {
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const stampX = width - 210;
-  const stampY = 95;
-  page.drawRectangle({
-    x: stampX,
-    y: stampY,
-    width: 170,
-    height: 55,
+  const issuedAtDate = new Date(args.issuedAt);
+  const issuedAtLabel = issuedAtDate.toLocaleString();
+  const hashId = crypto.createHash('sha256').update(args.signature).digest('hex').slice(0, 16).toUpperCase();
+
+  const stampR = 58;
+  const stampCx = width - 90;
+  const stampCy = 120;
+
+  page.drawCircle({
+    x: stampCx,
+    y: stampCy,
+    size: stampR,
     borderColor: rgb(0.88, 0.07, 0.28),
-    borderWidth: 2,
+    borderWidth: 3,
     color: rgb(1, 1, 1),
-    rotate: degrees(-12),
   });
-  page.drawText('BEATPOPPA VERIFIED', {
-    x: stampX + 12,
-    y: stampY + 28,
+  page.drawText('BEATPOPPA', {
+    x: stampCx - 42,
+    y: stampCy + 18,
     size: 12,
     font: fontBold,
     color: rgb(0.88, 0.07, 0.28),
-    rotate: degrees(-12),
+  });
+  page.drawText('VERIFIED', {
+    x: stampCx - 32,
+    y: stampCy + 2,
+    size: 11,
+    font: fontBold,
+    color: rgb(0.15, 0.15, 0.15),
   });
   page.drawText(args.code, {
-    x: stampX + 28,
-    y: stampY + 14,
+    x: stampCx - 46,
+    y: stampCy - 14,
     size: 8,
     font: fontRegular,
-    color: rgb(0.2, 0.2, 0.2),
-    rotate: degrees(-12),
+    color: rgb(0.25, 0.25, 0.25),
+  });
+  page.drawText(issuedAtDate.toLocaleDateString(), {
+    x: stampCx - 30,
+    y: stampCy - 28,
+    size: 7,
+    font: fontRegular,
+    color: rgb(0.35, 0.35, 0.35),
   });
 
   page.drawText('LICENSE & CLEARANCE CERTIFICATE', {
@@ -87,7 +148,18 @@ async function buildLicensePdf(args: {
     color: rgb(0.9, 0.9, 0.9),
   });
 
-  let currentY = height - 160;
+  let currentY = height - 155;
+
+  const introLines = wrapText(
+    'This document certifies that the buyer has legally obtained a license to use the beat under the terms specified below. This license is protected under digital intellectual property law.',
+    92
+  );
+  introLines.forEach((line) => {
+    page.drawText(line, { x: 50, y: currentY, size: 9, font: fontRegular, color: rgb(0.35, 0.35, 0.35) });
+    currentY -= 14;
+  });
+
+  currentY -= 6;
   const drawRow = (label: string, value: string) => {
     page.drawText(label.toUpperCase(), { x: 50, y: currentY, size: 9, font: fontBold, color: rgb(0.5, 0.5, 0.5) });
     page.drawText(value, { x: 200, y: currentY, size: 11, font: fontRegular, color: rgb(0.1, 0.1, 0.1) });
@@ -95,20 +167,24 @@ async function buildLicensePdf(args: {
   };
 
   drawRow('Certificate ID', args.code);
+  drawRow('Hash ID', hashId);
   drawRow('Beat Title', args.beatTitle);
   drawRow('Producer', args.producerName);
   drawRow('License Type', args.licenseType);
   drawRow('BPM / Key', `${args.bpm} / ${args.key}`);
   drawRow('Buyer Name', args.buyerName);
-  drawRow('Issue Date', new Date(args.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+  drawRow('Issue Date', issuedAtLabel);
   drawRow('Transaction ID', args.transactionId);
 
-  currentY -= 10;
+  const features = normalizeFeatureList(args.licenseFeatures);
+  const preview = buildRightsPreview(features);
+
+  currentY -= 6;
   page.drawRectangle({
     x: 50,
-    y: currentY - 150,
+    y: currentY - 210,
     width: width - 100,
-    height: 150,
+    height: 210,
     color: rgb(0.98, 0.98, 0.98),
     borderColor: rgb(0.9, 0.9, 0.9),
     borderWidth: 1,
@@ -123,24 +199,52 @@ async function buildLicensePdf(args: {
     color: rgb(0.1, 0.1, 0.1),
   });
 
-  const descLines = (args.licenseDescription || '').match(/.{1,88}(\s|$)/g)?.slice(0, 2) || [];
+  const descLines = wrapText(args.licenseDescription || '', 92).slice(0, 3);
   let lineY = rightsY - 18;
   descLines.forEach((line) => {
     page.drawText(line.trim(), { x: 70, y: lineY, size: 8, font: fontRegular, color: rgb(0.35, 0.35, 0.35) });
     lineY -= 12;
   });
 
-  const features = (args.licenseFeatures || []).slice(0, 6);
-  if (features.length) {
-    page.drawText('Included:', { x: 70, y: lineY - 2, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
-    lineY -= 14;
-    features.forEach((f) => {
-      page.drawText(`• ${f}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.25, 0.25, 0.25) });
+  const rightsParagraph = wrapText(
+    'The buyer is granted non-exclusive rights to use this beat for commercial and non-commercial purposes under the stated limitations.',
+    92
+  ).slice(0, 2);
+  if (rightsParagraph.length) {
+    lineY -= 6;
+    rightsParagraph.forEach((line) => {
+      page.drawText(line, { x: 70, y: lineY, size: 8, font: fontRegular, color: rgb(0.35, 0.35, 0.35) });
       lineY -= 12;
     });
   }
 
-  currentY -= 190;
+  const featureRows = features.slice(0, 6);
+  if (featureRows.length) {
+    lineY -= 6;
+    page.drawText('Auto-filled clauses (summary):', { x: 70, y: lineY, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+    lineY -= 12;
+    featureRows.forEach((fItem) => {
+      page.drawText(`• ${fItem}`.slice(0, 110), { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.25, 0.25, 0.25) });
+      lineY -= 12;
+    });
+  }
+
+  lineY -= 4;
+  page.drawText('Quick preview:', { x: 70, y: lineY, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+  lineY -= 12;
+  preview.yes.forEach((t) => {
+    page.drawText(`✔ ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.1, 0.45, 0.2) });
+    lineY -= 12;
+  });
+  preview.no.forEach((t) => {
+    page.drawText(`✘ ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.65, 0.1, 0.15) });
+    lineY -= 12;
+  });
+
+  page.drawText('View Full License Agreement:', { x: 70, y: currentY - 198, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+  page.drawText(`${args.verifyUrl.split('/verify/')[0]}/licensing`, { x: 70, y: currentY - 212, size: 8, font: fontRegular, color: rgb(0.1, 0.4, 0.9) });
+
+  currentY -= 228;
   page.drawText('DIGITAL VERIFICATION SIGNATURE', { x: 50, y: currentY, size: 9, font: fontBold, color: rgb(0.5, 0.5, 0.5) });
   currentY -= 15;
   const signatureChunked = args.signature.match(/.{1,90}/g) || [];
@@ -149,12 +253,26 @@ async function buildLicensePdf(args: {
     currentY -= 10;
   });
 
+  const QRCode = (await import('qrcode')).default as any;
+  const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 140 });
+  const qrBase64 = String(qrDataUrl).split(',')[1] || '';
+  const qrBytes = Buffer.from(qrBase64, 'base64');
+  const qrImage = await pdfDoc.embedPng(qrBytes);
+
   page.drawRectangle({
     x: 0,
     y: 0,
     width: width,
     height: 60,
     color: rgb(0.05, 0.05, 0.05),
+  });
+
+  page.drawText('Verified Purchase ✔  Secured by BeatPoppa  This license is digitally signed', {
+    x: 50,
+    y: 48,
+    size: 8,
+    font: fontBold,
+    color: rgb(0.7, 0.7, 0.7),
   });
 
   page.drawText('VERIFY AUTHENTICITY AT:', {
@@ -173,13 +291,7 @@ async function buildLicensePdf(args: {
     color: rgb(1, 1, 1),
   });
 
-  page.drawText('BEATPOPPA', {
-    x: width - 150,
-    y: 25,
-    size: 12,
-    font: fontBold,
-    color: rgb(0.88, 0.07, 0.28),
-  });
+  page.drawImage(qrImage, { x: width - 60, y: 6, width: 48, height: 48 });
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);

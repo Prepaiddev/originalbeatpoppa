@@ -3,6 +3,7 @@ import { getStripe } from '@/lib/stripe';
 import { headers } from 'next/headers';
 import { OrderService } from '@/lib/services/OrderService';
 import { createClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 async function getStripeSecrets() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -62,11 +63,44 @@ export async function POST(req: NextRequest) {
 
       if (orderId) {
         const orderService = OrderService.getInstance();
-        const success = await orderService.completeOrder(orderId, paymentIntent.id);
-        if (success) {
-          console.log(`Order ${orderId} completed successfully via Stripe.`);
-        } else {
-          console.error(`Failed to complete order ${orderId} via Stripe.`);
+        await orderService.completeOrder(orderId, paymentIntent.id);
+
+        const admin = createAdminClient();
+        if (admin) {
+          await admin
+            .from('orders')
+            .update({ status: 'completed', transaction_id: paymentIntent.id })
+            .eq('id', orderId);
+
+          const { data: items } = await admin
+            .from('order_items')
+            .select('beat_id, bundle_id, beats(title, artist_id), bundles(title, creator_id)')
+            .eq('order_id', orderId);
+
+          const sellerIds = new Set<string>();
+          (items || []).forEach((i: any) => {
+            if (i?.beats?.artist_id) sellerIds.add(i.beats.artist_id);
+            if (i?.bundles?.creator_id) sellerIds.add(i.bundles.creator_id);
+          });
+
+          for (const sellerId of sellerIds) {
+            await admin.from('notifications').insert({
+              user_id: sellerId,
+              type: 'sale',
+              title: 'New Sale',
+              message: 'You received a new purchase on BeatPoppa.',
+              link: '/dashboard/creator/earnings',
+              is_read: false,
+            });
+          }
+
+          await admin.from('admin_notifications').insert({
+            type: 'sale',
+            title: 'New Purchase',
+            message: 'A new order was completed.',
+            link: '/admin/analytics',
+            is_read: false,
+          });
         }
       }
     }

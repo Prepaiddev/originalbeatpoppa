@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import crypto from 'crypto';
 
 async function buildInvoicePdf(args: {
   orderId: string;
@@ -10,6 +11,10 @@ async function buildInvoicePdf(args: {
   items: Array<{ title: string; licenseType: string; price: number }>;
   currency: string;
   total: number;
+  paymentProvider: string;
+  paymentStatus: string;
+  transactionId: string;
+  verifyUrl: string;
 }) {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([600, 780]);
@@ -17,33 +22,42 @@ async function buildInvoicePdf(args: {
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const stampX = width - 190;
-  const stampY = 75;
-  page.drawRectangle({
-    x: stampX,
-    y: stampY,
-    width: 140,
-    height: 55,
+  const createdAtDate = new Date(args.createdAt);
+  const createdAtLabel = createdAtDate.toLocaleString();
+  const hashId = crypto.createHash('sha256').update(`${args.orderId}:${args.transactionId}:${args.total}`).digest('hex').slice(0, 16).toUpperCase();
+
+  const stampR = 52;
+  const stampCx = width - 88;
+  const stampCy = 105;
+
+  page.drawCircle({
+    x: stampCx,
+    y: stampCy,
+    size: stampR,
     borderColor: rgb(0.88, 0.07, 0.28),
-    borderWidth: 2,
+    borderWidth: 3,
     color: rgb(1, 1, 1),
-    rotate: degrees(-12),
   });
   page.drawText('PAID', {
-    x: stampX + 48,
-    y: stampY + 26,
-    size: 18,
+    x: stampCx - 20,
+    y: stampCy + 10,
+    size: 20,
     font: fontBold,
     color: rgb(0.88, 0.07, 0.28),
-    rotate: degrees(-12),
   });
-  page.drawText(args.orderId.slice(0, 8).toUpperCase(), {
-    x: stampX + 32,
-    y: stampY + 12,
-    size: 8,
+  page.drawText(createdAtDate.toLocaleDateString(), {
+    x: stampCx - 34,
+    y: stampCy - 8,
+    size: 7,
     font: fontRegular,
-    color: rgb(0.2, 0.2, 0.2),
-    rotate: degrees(-12),
+    color: rgb(0.3, 0.3, 0.3),
+  });
+  page.drawText(createdAtDate.toLocaleTimeString(), {
+    x: stampCx - 28,
+    y: stampCy - 20,
+    size: 7,
+    font: fontRegular,
+    color: rgb(0.3, 0.3, 0.3),
   });
 
   page.drawText('BEATPOPPA RECEIPT', {
@@ -62,7 +76,7 @@ async function buildInvoicePdf(args: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  page.drawText(`Date: ${new Date(args.createdAt).toLocaleString()}`, {
+  page.drawText(`Date: ${createdAtLabel}`, {
     x: 50,
     y: height - 115,
     size: 10,
@@ -70,18 +84,32 @@ async function buildInvoicePdf(args: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
+  page.drawText(`Hash ID: ${hashId}`, {
+    x: 50,
+    y: height - 130,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.35, 0.35, 0.35),
+  });
+
   page.drawLine({
-    start: { x: 50, y: height - 130 },
-    end: { x: width - 50, y: height - 130 },
+    start: { x: 50, y: height - 145 },
+    end: { x: width - 50, y: height - 145 },
     thickness: 1,
     color: rgb(0.9, 0.9, 0.9),
   });
 
-  page.drawText('Billed To', { x: 50, y: height - 165, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
-  page.drawText(args.buyerName, { x: 50, y: height - 182, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText(args.buyerEmail, { x: 50, y: height - 197, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('Transaction Details', { x: 50, y: height - 175, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(`Payment Method: ${args.paymentProvider || 'N/A'}`, { x: 50, y: height - 192, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Payment Status: ${args.paymentStatus || 'N/A'}`, { x: 50, y: height - 207, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Transaction ID: ${args.transactionId || 'N/A'}`, { x: 50, y: height - 222, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Currency: ${args.currency}`, { x: 50, y: height - 237, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
 
-  let y = height - 235;
+  page.drawText('Billed To', { x: 330, y: height - 175, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(args.buyerName, { x: 330, y: height - 192, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(args.buyerEmail, { x: 330, y: height - 207, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+
+  let y = height - 270;
   page.drawText('Item', { x: 50, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
   page.drawText('License', { x: 330, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
   page.drawText('Price', { x: 520, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
@@ -108,6 +136,17 @@ async function buildInvoicePdf(args: {
   page.drawText('Total', { x: 420, y: y + 5, size: 12, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
   page.drawText(formatMoney(args.total), { x: 520, y: y + 5, size: 12, font: fontBold, color: rgb(0.88, 0.07, 0.28) });
 
+  const QRCode = (await import('qrcode')).default as any;
+  const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 150 });
+  const qrBase64 = String(qrDataUrl).split(',')[1] || '';
+  const qrBytes = Buffer.from(qrBase64, 'base64');
+  const qrImage = await pdfDoc.embedPng(qrBytes);
+
+  page.drawRectangle({ x: 50, y: 55, width: width - 100, height: 45, color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.92, 0.92, 0.92), borderWidth: 1 });
+  page.drawText('Verified Purchase ✔', { x: 65, y: 85, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
+  page.drawText('Secured by BeatPoppa', { x: 200, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('This receipt is digitally signed', { x: 370, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
+
   page.drawText('Thank you for your purchase.', {
     x: 50,
     y: 40,
@@ -115,6 +154,8 @@ async function buildInvoicePdf(args: {
     font: fontRegular,
     color: rgb(0.35, 0.35, 0.35),
   });
+
+  page.drawImage(qrImage, { x: 50, y: 10, width: 75, height: 75 });
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
@@ -130,7 +171,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('id, buyer_id, created_at, status, total_amount')
+    .select('id, buyer_id, created_at, status, total_amount, payment_provider, transaction_id')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -165,6 +206,9 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
 
   const total = Number(order.total_amount || items.reduce((sum: number, i: any) => sum + Number(i.price || 0), 0));
 
+  const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
+  const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/dashboard/buyer/orders`;
+
   const pdf = await buildInvoicePdf({
     orderId,
     createdAt: order.created_at,
@@ -173,6 +217,10 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     items: normalizedItems,
     currency: 'USD',
     total,
+    paymentProvider: order.payment_provider || 'N/A',
+    paymentStatus: order.status === 'completed' ? 'Paid ✅' : order.status,
+    transactionId: order.transaction_id || order.id,
+    verifyUrl,
   });
 
   return new NextResponse(pdf, {

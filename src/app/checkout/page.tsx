@@ -567,7 +567,8 @@ export default function CheckoutPage() {
                       }}
                       onApprove={async (data, actions) => {
                         const response = await axios.post('/api/payments/paypal/capture-order', {
-                          orderID: data.orderID
+                          orderID: data.orderID,
+                          orderId: pendingOrderId
                         });
                         if (response.data.status === 'success') {
                           await completeOrderUI(pendingOrderId || 'paypal_order', data.orderID);

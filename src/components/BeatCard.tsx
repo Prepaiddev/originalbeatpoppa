@@ -244,7 +244,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
                   Buy Now
                 </span>
                 <span className="text-white font-bold text-sm group-hover/price:text-primary transition-colors">
-                  {formatPrice(beat.price || 29.99, currency, exchangeRates)}
+                  {formatPrice(beat.price ?? 29.99, currency, exchangeRates, true)}
                 </span>
               </button>
             </div>
@@ -357,7 +357,7 @@ export default function BeatCard({ beat, variant = 'list', isPlaying: externalIs
                   Buy Now
                 </span>
                 <span className="text-white font-black text-base group-hover/buy:text-primary transition-colors">
-                  {formatPrice(beat.price || 29.99, currency, exchangeRates)}
+                  {formatPrice(beat.price ?? 29.99, currency, exchangeRates, true)}
                 </span>
               </button>
               <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
