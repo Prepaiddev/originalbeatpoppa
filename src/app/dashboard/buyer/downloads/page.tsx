@@ -77,6 +77,12 @@ export default function BuyerDownloadsPage() {
     setStatusModal({ isOpen: false, type: 'error', title: '', message: '' });
 
     const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    if (popup) {
+      try {
+        popup.document.title = 'Preparing download';
+        popup.document.body.innerHTML = '<div style="font-family: system-ui; padding: 24px;"><h2>Preparing your download…</h2><p>You can close this tab if it stays here for more than a few seconds.</p></div>';
+      } catch {}
+    }
 
     try {
       const res = await fetch(`/api/downloads/${orderId}`);

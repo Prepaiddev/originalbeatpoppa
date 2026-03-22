@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import crypto from 'crypto';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 async function buildInvoicePdf(args: {
   orderId: string;
@@ -163,30 +164,33 @@ async function buildInvoicePdf(args: {
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ orderId: string }> }) {
   const { orderId } = await params;
-  const supabase = await createClient();
+  const auth = await createClient();
+  const admin = createAdminClient();
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await auth.auth.getUser();
   const user = userData?.user;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: order, error: orderError } = await supabase
+  if (!admin) return NextResponse.json({ error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 });
+
+  const { data: order, error: orderError } = await admin
     .from('orders')
     .select('id, buyer_id, created_at, status, total_amount, payment_provider, transaction_id')
     .eq('id', orderId)
     .maybeSingle();
 
-  if (orderError || !order) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+  if (orderError || !order) return NextResponse.json({ error: orderError?.message || 'Order not found' }, { status: 404 });
 
   if (order.buyer_id !== user.id) {
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
     if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { data: buyerProfile } = await supabase.from('profiles').select('display_name, email').eq('id', order.buyer_id).maybeSingle();
+  const { data: buyerProfile } = await admin.from('profiles').select('display_name, email').eq('id', order.buyer_id).maybeSingle();
   const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
   const buyerEmail = buyerProfile?.email || '';
 
-  const { data: itemsData, error: itemsError } = await supabase
+  const { data: itemsData, error: itemsError } = await admin
     .from('order_items')
     .select('license_type, price, beats(title)')
     .eq('order_id', orderId);
@@ -200,7 +204,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   }));
 
   const licenseTypeIds = Array.from(new Set(items.map((i) => i.licenseType).filter((x) => typeof x === 'string' && x.length > 0)));
-  const { data: licenseTypes } = await supabase.from('license_types').select('id, name').in('id', licenseTypeIds);
+  const { data: licenseTypes } = await admin.from('license_types').select('id, name').in('id', licenseTypeIds);
   const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
   const normalizedItems = items.map((i: any) => ({ ...i, licenseType: licenseTypeMap.get(i.licenseType) || i.licenseType }));
 

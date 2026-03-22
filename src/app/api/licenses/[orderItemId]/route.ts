@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import crypto from 'crypto';
-import { createClient as createAdminClient } from '@supabase/supabase-js';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 function buildVerificationCode(orderItemId: string) {
   return `BP-${orderItemId.replaceAll('-', '').slice(0, 12).toUpperCase()}`;
@@ -299,33 +299,36 @@ async function buildLicensePdf(args: {
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ orderItemId: string }> }) {
   const { orderItemId } = await params;
-  const supabase = await createClient();
+  const auth = await createClient();
+  const admin = createAdminClient();
 
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await auth.auth.getUser();
   const user = userData?.user;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: item, error: itemError } = await supabase
+  if (!admin) return NextResponse.json({ error: 'Server is missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 });
+
+  const { data: item, error: itemError } = await admin
     .from('order_items')
     .select('id, order_id, beat_id, license_type, price, orders(buyer_id, status, created_at, transaction_id), beats(title, bpm, key, profiles:artist_id(display_name))')
     .eq('id', orderItemId)
     .maybeSingle();
 
-  if (itemError || !item) return NextResponse.json({ error: 'Order item not found' }, { status: 404 });
+  if (itemError || !item) return NextResponse.json({ error: itemError?.message || 'Order item not found' }, { status: 404 });
 
   const buyerId = (item as any)?.orders?.buyer_id;
   if (buyerId !== user.id) {
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
     if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { data: buyerProfile } = await supabase.from('profiles').select('display_name, email').eq('id', buyerId).maybeSingle();
+  const { data: buyerProfile } = await admin.from('profiles').select('display_name, email').eq('id', buyerId).maybeSingle();
 
   const beatTitle = (item as any)?.beats?.title || 'Beat';
   const producerName = (item as any)?.beats?.profiles?.display_name || 'Producer';
   const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
   const rawLicenseTypeId = (item as any)?.license_type || '';
-  const { data: licenseTypeRow } = await supabase
+  const { data: licenseTypeRow } = await admin
     .from('license_types')
     .select('name, description, features')
     .eq('id', rawLicenseTypeId)
@@ -361,24 +364,19 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
 
   const signature = buildSignature(payload);
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (supabaseUrl && serviceRoleKey) {
-    const admin = createAdminClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
-    await admin
-      .from('licenses')
-      .upsert(
-        {
-          order_item_id: orderItemId,
-          beat_id: (item as any)?.beat_id,
-          license_type: licenseType,
-          verification_code: code,
-          cryptographic_signature: signature,
-          metadata: { ...payload },
-        },
-        { onConflict: 'verification_code' }
-      );
-  }
+  await admin
+    .from('licenses')
+    .upsert(
+      {
+        order_item_id: orderItemId,
+        beat_id: (item as any)?.beat_id,
+        license_type: licenseType,
+        verification_code: code,
+        cryptographic_signature: signature,
+        metadata: { ...payload },
+      },
+      { onConflict: 'verification_code' }
+    );
 
   const pdfBuffer = await buildLicensePdf({
     code,

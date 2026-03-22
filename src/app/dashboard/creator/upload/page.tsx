@@ -55,7 +55,6 @@ function UploadBeatContent() {
   const [selectedLicenses, setSelectedLicenses] = useState<Record<string, { enabled: boolean, price: number }>>({});
   const [isFree, setIsFree] = useState(false);
   const [preFreeLicenses, setPreFreeLicenses] = useState<Record<string, { enabled: boolean, price: number }> | null>(null);
-  const [commissionPercent, setCommissionPercent] = useState<number>(0);
 
   const audioInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -91,25 +90,6 @@ function UploadBeatContent() {
   }, [editId]);
 
   useEffect(() => {
-    async function fetchCommission() {
-      try {
-        const { data } = await supabase
-          .from('platform_settings')
-          .select('value')
-          .eq('key', 'payment_config')
-          .maybeSingle();
-
-        const value = (data?.value as any) || {};
-        const pct = typeof value?.commission_percentage === 'number' ? value.commission_percentage : Number(value?.commission_percentage || 0);
-        setCommissionPercent(Number.isFinite(pct) ? pct : 0);
-      } catch {
-        setCommissionPercent(0);
-      }
-    }
-    fetchCommission();
-  }, []);
-
-  useEffect(() => {
     if (!editId) return;
     if (!availableLicenses.length) return;
     setSelectedLicenses((prev) => {
@@ -117,6 +97,7 @@ function UploadBeatContent() {
       availableLicenses.forEach((l: any) => {
         if (!next[l.id]) next[l.id] = { enabled: false, price: l.default_price };
         if (typeof next[l.id].price !== 'number' || Number.isNaN(next[l.id].price)) next[l.id].price = l.default_price;
+        if (next[l.id].price < l.default_price) next[l.id].price = l.default_price;
       });
       return next;
     });
@@ -125,8 +106,12 @@ function UploadBeatContent() {
   useEffect(() => {
     if (!availableLicenses.length) return;
 
-    const cheapest = [...availableLicenses].sort((a: any, b: any) => (a.default_price || 0) - (b.default_price || 0))[0];
-    if (!cheapest) return;
+    const freeLicense = availableLicenses.find((l: any) => Number(l.default_price || 0) === 0);
+    if (isFree && !freeLicense) {
+      setIsFree(false);
+      return;
+    }
+    if (!freeLicense) return;
 
     if (isFree) {
       setPreFreeLicenses((prev) => prev ?? selectedLicenses);
@@ -134,7 +119,7 @@ function UploadBeatContent() {
         const next: Record<string, { enabled: boolean; price: number }> = { ...prev };
         availableLicenses.forEach((l: any) => {
           const basePrice = typeof next[l.id]?.price === 'number' ? next[l.id].price : l.default_price;
-          next[l.id] = { enabled: l.id === cheapest.id, price: l.id === cheapest.id ? 0 : basePrice };
+          next[l.id] = { enabled: l.id === freeLicense.id, price: l.id === freeLicense.id ? 0 : Math.max(basePrice, l.default_price) };
         });
         return next;
       });
@@ -211,11 +196,12 @@ function UploadBeatContent() {
     }
   };
 
-  const handlePriceChange = (id: string, value: string) => {
+  const handlePriceChange = (id: string, value: string, basePrice: number) => {
     const price = parseFloat(value);
+    const nextPrice = Math.max(basePrice, isNaN(price) ? basePrice : price);
     setSelectedLicenses(prev => ({
       ...prev,
-      [id]: { ...(prev[id] || { enabled: true, price: 0 }), price: isNaN(price) ? 0 : price }
+      [id]: { ...(prev[id] || { enabled: true, price: basePrice }), price: nextPrice }
     }));
   };
 
@@ -229,7 +215,7 @@ function UploadBeatContent() {
       const nextPrice = typeof current?.price === 'number' ? current.price : defaultPrice;
       return {
         ...prev,
-        [id]: { enabled: nextEnabled, price: nextEnabled ? nextPrice : nextPrice }
+        [id]: { enabled: nextEnabled, price: Math.max(defaultPrice, nextEnabled ? nextPrice : nextPrice) }
       };
     });
   };
@@ -266,47 +252,35 @@ function UploadBeatContent() {
       let audioUrl = existingUrls.audio;
       let coverUrl = existingUrls.cover;
 
-      // 1. Upload Audio if new file selected
-      if (files.audio) {
+      const uploadAudio = async () => {
+        if (!files.audio) return existingUrls.audio;
         const audioPath = `${user.id}/${timestamp}-${files.audio.name}`;
-        const { error: audioError } = await supabase.storage
-          .from('beats')
-          .upload(audioPath, files.audio);
-
+        const { error: audioError } = await supabase.storage.from('beats').upload(audioPath, files.audio);
         if (audioError) throw new Error(`Audio upload failed: ${audioError.message}`);
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from('beats')
-          .getPublicUrl(audioPath);
-        audioUrl = publicUrl;
-      }
+        const { data: { publicUrl } } = supabase.storage.from('beats').getPublicUrl(audioPath);
+        return publicUrl;
+      };
 
-      // 2. Upload Cover if new file selected
-      if (files.cover) {
+      const uploadCover = async () => {
+        if (!files.cover) return existingUrls.cover;
         const coverPath = `${user.id}/${timestamp}-${files.cover.name}`;
-        const { error: coverError } = await supabase.storage
-          .from('covers')
-          .upload(coverPath, files.cover);
-        
+        const { error: coverError } = await supabase.storage.from('covers').upload(coverPath, files.cover);
+
         let finalCoverPath = coverPath;
         let coverBucket = 'covers';
 
         if (coverError) {
-           console.warn('Cover upload to "covers" bucket failed, trying "beats" bucket...', coverError);
-           const { error: retryError } = await supabase.storage
-              .from('beats')
-              .upload(`covers/${coverPath}`, files.cover);
-           
-           if (retryError) throw new Error(`Cover upload failed: ${retryError.message}`);
-           finalCoverPath = `covers/${coverPath}`;
-           coverBucket = 'beats';
+          const { error: retryError } = await supabase.storage.from('beats').upload(`covers/${coverPath}`, files.cover);
+          if (retryError) throw new Error(`Cover upload failed: ${retryError.message}`);
+          finalCoverPath = `covers/${coverPath}`;
+          coverBucket = 'beats';
         }
 
-        const { data: { publicUrl } } = supabase.storage
-          .from(coverBucket)
-          .getPublicUrl(finalCoverPath);
-        coverUrl = publicUrl;
-      }
+        const { data: { publicUrl } } = supabase.storage.from(coverBucket).getPublicUrl(finalCoverPath);
+        return publicUrl;
+      };
+
+      [audioUrl, coverUrl] = await Promise.all([uploadAudio(), uploadCover()]);
 
       // 3. Insert or Update Database
       const selectedIds = Object.keys(selectedLicenses).filter(id => selectedLicenses[id]?.enabled);
@@ -348,22 +322,21 @@ function UploadBeatContent() {
          if (dbError) throw dbError;
          beatId = newBeat.id;
          
-         // Notify creator
-         await supabase.from('notifications').insert({
-           user_id: user.id,
-           type: 'beat_submission',
-           title: 'Beat Submitted',
-           message: `Your beat "${metadata.title}" has been submitted and is pending approval.`,
-           link: '/dashboard/creator/my-beats'
-         });
-
-         // Notify admin
-         await supabase.from('admin_notifications').insert({
-           type: 'beat_submission',
-           title: 'New Beat Submission',
-           message: `A new beat "${metadata.title}" has been submitted by ${profile?.display_name || user.email}.`,
-           link: '/admin/beats'
-         });
+         await Promise.all([
+           supabase.from('notifications').insert({
+             user_id: user.id,
+             type: 'beat_submission',
+             title: 'Beat Submitted',
+             message: `Your beat "${metadata.title}" has been submitted and is pending approval.`,
+             link: '/dashboard/creator/my-beats'
+           }),
+           supabase.from('admin_notifications').insert({
+             type: 'beat_submission',
+             title: 'New Beat Submission',
+             message: `A new beat "${metadata.title}" has been submitted by ${profile?.display_name || user.email}.`,
+             link: '/admin/beats'
+           })
+         ]);
       }
 
       // 4. Update beat_licenses
@@ -381,7 +354,7 @@ function UploadBeatContent() {
           return {
             beat_id: beatId,
             license_type_id: licenseTypeId,
-            price,
+            price: Math.max(defaultPrice, price),
             is_active: true
           };
         });
@@ -592,9 +565,6 @@ function UploadBeatContent() {
                     Licensing & Pricing
                   </h3>
                   <p className="text-zinc-500 text-xs font-medium">Select which licenses you want to offer for this beat</p>
-                  <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mt-2">
-                    Marketplace commission: {commissionPercent.toFixed(2)}%
-                  </p>
                 </div>
 
                 <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-xl border border-zinc-800">
@@ -603,6 +573,7 @@ function UploadBeatContent() {
                     id="free-beat"
                     checked={isFree}
                     onChange={(e) => setIsFree(e.target.checked)}
+                    disabled={!availableLicenses.some((l: any) => Number(l.default_price || 0) === 0)}
                     className="w-5 h-5 rounded border-zinc-700 bg-black text-primary focus:ring-primary cursor-pointer"
                   />
                   <label htmlFor="free-beat" className="text-xs font-black uppercase tracking-widest text-zinc-300 cursor-pointer">
@@ -644,9 +615,12 @@ function UploadBeatContent() {
                               {license.features?.join(' • ')}
                             </p>
                             <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mt-2">
-                              You earn: {formatPrice(
-                                (Number(selectedLicenses[license.id]?.price ?? license.default_price) || 0) * (1 - commissionPercent / 100),
-                                currency,
+                              Base platform price: {formatPrice(Number(license.default_price || 0), 'USD', exchangeRates, true)}
+                            </p>
+                            <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mt-1">
+                              Your earnings: {formatPrice(
+                                Math.max(0, Number(selectedLicenses[license.id]?.price ?? license.default_price) - Number(license.default_price || 0)),
+                                'USD',
                                 exchangeRates,
                                 true
                               )}
@@ -656,12 +630,14 @@ function UploadBeatContent() {
 
                         <div className="w-32 relative">
                           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 font-bold text-xs">
-                            {formatPrice(0, currency, exchangeRates).replace(/[0-9.,\s]/g, '')}
+                            {formatPrice(0, 'USD', exchangeRates).replace(/[0-9.,\s]/g, '')}
                           </div>
                           <input 
                             type="number"
                             value={selectedLicenses[license.id]?.price || license.default_price}
-                            onChange={(e) => handlePriceChange(license.id, e.target.value)}
+                            onChange={(e) => handlePriceChange(license.id, e.target.value, Number(license.default_price || 0))}
+                            min={Number(license.default_price || 0)}
+                            step="0.01"
                             disabled={!selectedLicenses[license.id]?.enabled}
                             className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-8 pr-3 text-sm font-bold text-white focus:border-primary outline-none transition-all ${
                               !selectedLicenses[license.id]?.enabled ? 'opacity-30 cursor-not-allowed' : ''

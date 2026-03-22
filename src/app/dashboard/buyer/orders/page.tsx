@@ -9,12 +9,14 @@ import { useUIStore, formatPrice } from '@/store/useUIStore';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import ReviewModal from '@/components/ReviewModal';
+import StatusModal from '@/components/StatusModal';
 
 export default function MyOrdersPage() {
   const { user } = useAuthStore();
   const { currency, exchangeRates } = useUIStore();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusModal, setStatusModal] = useState({ isOpen: false, type: 'error' as const, title: '', message: '' });
   const [reviewModal, setReviewModal] = useState<{ isOpen: boolean, beatId: string, beatTitle: string }>({
     isOpen: false,
     beatId: '',
@@ -95,15 +97,31 @@ export default function MyOrdersPage() {
   };
 
   const handleDownloadLicense = async (orderItemId: string, title?: string) => {
-    const res = await fetch(`/api/licenses/${orderItemId}`);
-    if (!res.ok) return;
-    await downloadBlob(res, `${(title || 'License').replaceAll('/', '-')}_License.pdf`);
+    try {
+      const res = await fetch(`/api/licenses/${orderItemId}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        setStatusModal({ isOpen: true, type: 'error', title: 'License Failed', message: json?.error || 'Unable to generate license.' });
+        return;
+      }
+      await downloadBlob(res, `${(title || 'License').replaceAll('/', '-')}_License.pdf`);
+    } catch (err: any) {
+      setStatusModal({ isOpen: true, type: 'error', title: 'License Failed', message: err?.message || 'Unable to generate license.' });
+    }
   };
 
   const handleViewInvoice = async (orderId: string) => {
-    const res = await fetch(`/api/invoices/${orderId}`);
-    if (!res.ok) return;
-    await downloadBlob(res, `Invoice_${orderId.slice(0, 8)}.pdf`);
+    try {
+      const res = await fetch(`/api/invoices/${orderId}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        setStatusModal({ isOpen: true, type: 'error', title: 'Receipt Failed', message: json?.error || 'Unable to generate receipt.' });
+        return;
+      }
+      await downloadBlob(res, `Invoice_${orderId.slice(0, 8)}.pdf`);
+    } catch (err: any) {
+      setStatusModal({ isOpen: true, type: 'error', title: 'Receipt Failed', message: err?.message || 'Unable to generate receipt.' });
+    }
   };
 
   if (loading) {
@@ -199,6 +217,14 @@ export default function MyOrdersPage() {
           onClose={() => setReviewModal({ ...reviewModal, isOpen: false })} 
           beatId={reviewModal.beatId} 
           beatTitle={reviewModal.beatTitle} 
+        />
+
+        <StatusModal
+          isOpen={statusModal.isOpen}
+          onClose={() => setStatusModal({ ...statusModal, isOpen: false })}
+          type={statusModal.type}
+          title={statusModal.title}
+          message={statusModal.message}
         />
       </main>
     </div>
