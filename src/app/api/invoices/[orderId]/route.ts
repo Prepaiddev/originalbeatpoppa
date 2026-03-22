@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 
 async function buildInvoicePdf(args: {
   orderId: string;
@@ -16,6 +16,35 @@ async function buildInvoicePdf(args: {
   const { width, height } = page.getSize();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const stampX = width - 190;
+  const stampY = 75;
+  page.drawRectangle({
+    x: stampX,
+    y: stampY,
+    width: 140,
+    height: 55,
+    borderColor: rgb(0.88, 0.07, 0.28),
+    borderWidth: 2,
+    color: rgb(1, 1, 1),
+    rotate: degrees(-12),
+  });
+  page.drawText('PAID', {
+    x: stampX + 48,
+    y: stampY + 26,
+    size: 18,
+    font: fontBold,
+    color: rgb(0.88, 0.07, 0.28),
+    rotate: degrees(-12),
+  });
+  page.drawText(args.orderId.slice(0, 8).toUpperCase(), {
+    x: stampX + 32,
+    y: stampY + 12,
+    size: 8,
+    font: fontRegular,
+    color: rgb(0.2, 0.2, 0.2),
+    rotate: degrees(-12),
+  });
 
   page.drawText('BEATPOPPA RECEIPT', {
     x: 50,
@@ -129,6 +158,11 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     price: Number(i?.price || 0),
   }));
 
+  const licenseTypeIds = Array.from(new Set(items.map((i) => i.licenseType).filter((x) => typeof x === 'string' && x.length > 0)));
+  const { data: licenseTypes } = await supabase.from('license_types').select('id, name').in('id', licenseTypeIds);
+  const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
+  const normalizedItems = items.map((i: any) => ({ ...i, licenseType: licenseTypeMap.get(i.licenseType) || i.licenseType }));
+
   const total = Number(order.total_amount || items.reduce((sum: number, i: any) => sum + Number(i.price || 0), 0));
 
   const pdf = await buildInvoicePdf({
@@ -136,7 +170,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     createdAt: order.created_at,
     buyerName,
     buyerEmail,
-    items,
+    items: normalizedItems,
     currency: 'USD',
     total,
   });
@@ -148,4 +182,3 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     },
   });
 }
-

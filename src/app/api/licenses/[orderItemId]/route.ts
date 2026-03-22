@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import crypto from 'crypto';
+import { createClient as createAdminClient } from '@supabase/supabase-js';
 
 function buildVerificationCode(orderItemId: string) {
   return `BP-${orderItemId.replaceAll('-', '').slice(0, 12).toUpperCase()}`;
@@ -20,16 +21,48 @@ async function buildLicensePdf(args: {
   producerName: string;
   buyerName: string;
   licenseType: string;
+  licenseDescription: string;
+  licenseFeatures: string[];
   bpm: number;
   key: string;
   issuedAt: string;
   transactionId: string;
+  verifyUrl: string;
 }) {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([600, 800]);
   const { width, height } = page.getSize();
   const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const stampX = width - 210;
+  const stampY = 95;
+  page.drawRectangle({
+    x: stampX,
+    y: stampY,
+    width: 170,
+    height: 55,
+    borderColor: rgb(0.88, 0.07, 0.28),
+    borderWidth: 2,
+    color: rgb(1, 1, 1),
+    rotate: degrees(-12),
+  });
+  page.drawText('BEATPOPPA VERIFIED', {
+    x: stampX + 12,
+    y: stampY + 28,
+    size: 12,
+    font: fontBold,
+    color: rgb(0.88, 0.07, 0.28),
+    rotate: degrees(-12),
+  });
+  page.drawText(args.code, {
+    x: stampX + 28,
+    y: stampY + 14,
+    size: 8,
+    font: fontRegular,
+    color: rgb(0.2, 0.2, 0.2),
+    rotate: degrees(-12),
+  });
 
   page.drawText('LICENSE & CLEARANCE CERTIFICATE', {
     x: 50,
@@ -70,39 +103,44 @@ async function buildLicensePdf(args: {
   drawRow('Issue Date', new Date(args.issuedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
   drawRow('Transaction ID', args.transactionId);
 
-  currentY -= 20;
+  currentY -= 10;
   page.drawRectangle({
     x: 50,
-    y: currentY - 100,
+    y: currentY - 150,
     width: width - 100,
-    height: 100,
+    height: 150,
     color: rgb(0.98, 0.98, 0.98),
     borderColor: rgb(0.9, 0.9, 0.9),
     borderWidth: 1,
   });
 
-  const statementY = currentY - 25;
-  page.drawText('OFFICIAL CLEARANCE STATEMENT', {
+  const rightsY = currentY - 25;
+  page.drawText('LICENSE DETAILS & USAGE RIGHTS', {
     x: 70,
-    y: statementY,
+    y: rightsY,
     size: 10,
     font: fontBold,
     color: rgb(0.1, 0.1, 0.1),
   });
 
-  const statementLines = [
-    'This document serves as official proof of purchase and license clearance for the musical work',
-    'listed above. The bearer of this certificate is authorized to use the composition and master',
-    'recording according to the terms of the selected license.',
-  ];
-
-  let lineY = statementY - 20;
-  statementLines.forEach((line) => {
-    page.drawText(line, { x: 70, y: lineY, size: 8, font: fontRegular, color: rgb(0.3, 0.3, 0.3) });
-    lineY -= 15;
+  const descLines = (args.licenseDescription || '').match(/.{1,88}(\s|$)/g)?.slice(0, 2) || [];
+  let lineY = rightsY - 18;
+  descLines.forEach((line) => {
+    page.drawText(line.trim(), { x: 70, y: lineY, size: 8, font: fontRegular, color: rgb(0.35, 0.35, 0.35) });
+    lineY -= 12;
   });
 
-  currentY -= 150;
+  const features = (args.licenseFeatures || []).slice(0, 6);
+  if (features.length) {
+    page.drawText('Included:', { x: 70, y: lineY - 2, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+    lineY -= 14;
+    features.forEach((f) => {
+      page.drawText(`• ${f}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.25, 0.25, 0.25) });
+      lineY -= 12;
+    });
+  }
+
+  currentY -= 190;
   page.drawText('DIGITAL VERIFICATION SIGNATURE', { x: 50, y: currentY, size: 9, font: fontBold, color: rgb(0.5, 0.5, 0.5) });
   currentY -= 15;
   const signatureChunked = args.signature.match(/.{1,90}/g) || [];
@@ -127,7 +165,7 @@ async function buildLicensePdf(args: {
     color: rgb(0.5, 0.5, 0.5),
   });
 
-  page.drawText(`https://beatpoppadjs.vercel.app/verify/${args.code}`, {
+  page.drawText(args.verifyUrl, {
     x: 50,
     y: 20,
     size: 10,
@@ -174,25 +212,61 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
   const beatTitle = (item as any)?.beats?.title || 'Beat';
   const producerName = (item as any)?.beats?.profiles?.display_name || 'Producer';
   const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
-  const licenseType = (item as any)?.license_type || 'License';
+  const rawLicenseTypeId = (item as any)?.license_type || '';
+  const { data: licenseTypeRow } = await supabase
+    .from('license_types')
+    .select('name, description, features')
+    .eq('id', rawLicenseTypeId)
+    .maybeSingle();
+
+  const licenseType = licenseTypeRow?.name || rawLicenseTypeId || 'License';
+  const licenseDescription = licenseTypeRow?.description || '';
+  const licenseFeatures = Array.isArray(licenseTypeRow?.features) ? licenseTypeRow?.features : [];
   const bpm = Number((item as any)?.beats?.bpm || 0);
   const musicalKey = String((item as any)?.beats?.key || 'N/A');
   const issuedAt = (item as any)?.orders?.created_at || new Date().toISOString();
   const transactionId = (item as any)?.orders?.transaction_id || (item as any)?.order_id || 'N/A';
 
   const code = buildVerificationCode(orderItemId);
-  const signature = buildSignature({
+  const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
+  const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/verify/${code}`;
+
+  const payload = {
     order_item_id: orderItemId,
+    beat_id: (item as any)?.beat_id,
     beat_title: beatTitle,
     producer_name: producerName,
     buyer_name: buyerName,
     license_type: licenseType,
+    license_description: licenseDescription,
+    license_features: licenseFeatures,
     bpm,
     key: musicalKey,
     issued_at: issuedAt,
     transaction_id: transactionId,
     code,
-  });
+  };
+
+  const signature = buildSignature(payload);
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (supabaseUrl && serviceRoleKey) {
+    const admin = createAdminClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } });
+    await admin
+      .from('licenses')
+      .upsert(
+        {
+          order_item_id: orderItemId,
+          beat_id: (item as any)?.beat_id,
+          license_type: licenseType,
+          verification_code: code,
+          cryptographic_signature: signature,
+          metadata: { ...payload },
+        },
+        { onConflict: 'verification_code' }
+      );
+  }
 
   const pdfBuffer = await buildLicensePdf({
     code,
@@ -201,10 +275,13 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     producerName,
     buyerName,
     licenseType,
+    licenseDescription,
+    licenseFeatures,
     bpm,
     key: musicalKey,
     issuedAt,
     transactionId,
+    verifyUrl,
   });
 
   return new NextResponse(pdfBuffer, {
@@ -214,4 +291,3 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
     },
   });
 }
-

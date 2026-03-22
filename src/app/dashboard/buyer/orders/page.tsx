@@ -60,7 +60,18 @@ export default function MyOrdersPage() {
           });
         });
 
-        setOrders(flattened);
+        const licenseTypeIds = Array.from(
+          new Set(
+            flattened
+              .map((i: any) => i.license_type)
+              .filter((x: any) => typeof x === 'string' && x.length > 0)
+          )
+        );
+
+        const { data: licenseTypes } = await supabase.from('license_types').select('id, name').in('id', licenseTypeIds);
+        const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
+
+        setOrders(flattened.map((i: any) => ({ ...i, license_name: licenseTypeMap.get(i.license_type) || i.license_type })));
       } catch (error) {
         console.error('Error fetching orders:', error);
       } finally {
@@ -87,18 +98,6 @@ export default function MyOrdersPage() {
     const res = await fetch(`/api/licenses/${orderItemId}`);
     if (!res.ok) return;
     await downloadBlob(res, `${(title || 'License').replaceAll('/', '-')}_License.pdf`);
-  };
-
-  const handleDownloadBeat = async (orderId: string, orderItemId: string, title?: string) => {
-    const res = await fetch(`/api/downloads/${orderId}`);
-    const json = await res.json();
-    if (!res.ok) return;
-    const link = (json?.links || []).find((l: any) => l.order_item_id === orderItemId);
-    if (link?.download_url) {
-      window.open(link.download_url, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    if (link?.download_url === null) return;
   };
 
   const handleViewInvoice = async (orderId: string) => {
@@ -162,19 +161,12 @@ export default function MyOrdersPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <FileCheck size={14} className="text-zinc-600" />
-                        {`${item.license_type} License`}
+                        {`${item.license_name || item.license_type} License`}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap md:flex-nowrap items-center gap-2 w-full md:w-auto justify-center">
-                    <button 
-                      onClick={() => handleDownloadBeat(order.id, item.id, title)}
-                      className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Download size={16} />
-                      Download
-                    </button>
                     <button 
                       onClick={() => handleDownloadLicense(item.id, title)}
                       className="flex-1 md:flex-none px-4 py-2 bg-zinc-800 text-zinc-300 rounded-lg text-sm font-bold hover:bg-zinc-700 hover:text-white transition-colors flex items-center justify-center gap-2"
