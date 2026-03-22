@@ -149,7 +149,7 @@ async function buildInvoicePdf(args: {
   } catch {}
 
   page.drawRectangle({ x: 50, y: 55, width: width - 100, height: 45, color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.92, 0.92, 0.92), borderWidth: 1 });
-  page.drawText('Verified Purchase ✔', { x: 65, y: 85, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
+  page.drawText('Verified Purchase', { x: 65, y: 85, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
   page.drawText('Secured by BeatPoppa', { x: 200, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
   page.drawText('This receipt is digitally signed', { x: 370, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
 
@@ -240,7 +240,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ orderI
       currency: 'USD',
       total,
       paymentProvider: order.payment_provider || 'N/A',
-      paymentStatus: order.status === 'completed' ? 'Paid ✅' : order.status,
+      paymentStatus: order.status === 'completed' ? 'Paid' : order.status,
       transactionId: order.transaction_id || order.id,
       verifyUrl,
     });

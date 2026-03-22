@@ -96,13 +96,13 @@ export default function BuyerDownloadsPage() {
         });
         return;
       }
-      const fileRes = await fetch(link.download_url);
-      if (!fileRes.ok) {
-        setStatusModal({ isOpen: true, type: 'error', title: 'Download Failed', message: 'Unable to fetch file data.' });
-        return;
-      }
-      const safeTitle = (title || link.title || 'Beat').replaceAll('/', '-').replaceAll('\\', '-');
-      await downloadBlob(fileRes, `${safeTitle}.mp3`);
+      const a = document.createElement('a');
+      a.href = link.download_url;
+      a.rel = 'noopener noreferrer';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (err: any) {
       const msg = err?.message || 'Download failed. Please try again.';
       setStatusModal({ isOpen: true, type: 'error', title: 'Download Failed', message: msg });

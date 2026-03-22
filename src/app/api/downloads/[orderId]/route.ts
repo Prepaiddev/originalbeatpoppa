@@ -120,7 +120,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
           };
         }
         
-        const { data } = await db.storage.from(bucket).createSignedUrl(path, 172800); 
+        const { data } = await db.storage.from(bucket).createSignedUrl(path, 172800, { download: true }); 
 
         return {
           order_item_id: item.id,

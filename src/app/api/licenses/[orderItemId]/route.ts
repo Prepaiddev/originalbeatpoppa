@@ -235,11 +235,11 @@ async function buildLicensePdf(args: {
   page.drawText('Quick preview:', { x: 70, y: lineY, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
   lineY -= 12;
   preview.yes.forEach((t) => {
-    page.drawText(`✔ ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.1, 0.45, 0.2) });
+    page.drawText(`YES - ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.1, 0.45, 0.2) });
     lineY -= 12;
   });
   preview.no.forEach((t) => {
-    page.drawText(`✘ ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.65, 0.1, 0.15) });
+    page.drawText(`NO - ${t}`, { x: 80, y: lineY, size: 8, font: fontRegular, color: rgb(0.65, 0.1, 0.15) });
     lineY -= 12;
   });
 
@@ -272,7 +272,7 @@ async function buildLicensePdf(args: {
     color: rgb(0.05, 0.05, 0.05),
   });
 
-  page.drawText('Verified Purchase ✔  Secured by BeatPoppa  This license is digitally signed', {
+  page.drawText('Verified Purchase  Secured by BeatPoppa  This license is digitally signed', {
     x: 50,
     y: 48,
     size: 8,
