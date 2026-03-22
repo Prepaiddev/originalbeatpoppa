@@ -33,7 +33,7 @@ export default function CheckoutPage() {
     currency: 'USD',
     providers: {
       stripe: { enabled: true, publicKey: '' },
-      paystack: { enabled: true },
+      paystack: { enabled: true, publicKey: '' },
       paypal: { enabled: true, clientId: '', mode: 'sandbox' as 'sandbox' | 'live' },
     },
   });
@@ -44,11 +44,12 @@ export default function CheckoutPage() {
   // Auto-switch currency based on payment method
   useEffect(() => {
     if (paymentMethod === 'paystack') {
-      setCurrency('NGN');
-    } else if (paymentMethod === 'paypal' || paymentMethod === 'card') {
+      const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'XOF'];
+      if (!supported.includes(currency)) setCurrency('NGN');
+    } else if ((paymentMethod === 'paypal' || paymentMethod === 'card') && currency !== 'USD') {
       setCurrency('USD');
     }
-  }, [paymentMethod]);
+  }, [paymentMethod, currency, setCurrency]);
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -66,7 +67,7 @@ export default function CheckoutPage() {
           currency: data?.currency || 'USD',
           providers: {
             stripe: { enabled: !!data?.providers?.stripe?.enabled, publicKey: data?.providers?.stripe?.publicKey || '' },
-            paystack: { enabled: !!data?.providers?.paystack?.enabled },
+            paystack: { enabled: !!data?.providers?.paystack?.enabled, publicKey: data?.providers?.paystack?.publicKey || '' },
             paypal: {
               enabled: !!data?.providers?.paypal?.enabled,
               clientId: data?.providers?.paypal?.clientId || '',
@@ -233,28 +234,75 @@ export default function CheckoutPage() {
   };
 
   const handlePaystackPayment = async (order: any) => {
-    try {
-      const { data } = await axios.post('/api/payments/paystack/initialize', {
-        amount: total,
-        email,
-        orderId: order.id,
-        currency: currency === 'NGN' ? 'NGN' : 'USD'
-      });
-      
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-        return;
-      }
-      setPaymentError(data?.error || 'Paystack initialization failed. Please check Paystack settings.');
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.message ||
-        'Paystack initialization failed. Please check Paystack settings.';
-      setPaymentError(msg);
-    } finally {
+    const supported = ['NGN', 'GHS', 'ZAR', 'KES', 'XOF', 'USD'];
+    const paystackCurrency = supported.includes(currency) ? currency : 'NGN';
+
+    const publicKey = paymentSettings.providers.paystack.publicKey;
+    if (!publicKey) {
+      setPaymentError('Paystack public key is not configured in Admin → Settings → Payments.');
       setIsProcessing(false);
+      return;
     }
+
+    const rate = exchangeRates?.[paystackCurrency] ?? 1;
+    const amountInCurrency = total * rate;
+    const amountSubunits = Math.max(0, Math.round(amountInCurrency * 100));
+
+    if (!amountSubunits) {
+      setPaymentError('Payment amount is too small to process.');
+      setIsProcessing(false);
+      return;
+    }
+
+    setPendingOrderId(order.id);
+
+    const { default: PaystackPop } = await import('@paystack/inline-js');
+    const paystack = new PaystackPop();
+
+    paystack.newTransaction({
+      key: publicKey,
+      email,
+      amount: amountSubunits,
+      currency: paystackCurrency,
+      reference: order.id,
+      firstName,
+      lastName,
+      metadata: {
+        orderId: order.id
+      },
+      onLoad: () => {
+        setIsProcessing(false);
+      },
+      onCancel: () => {
+        setIsProcessing(false);
+      },
+      onError: (e: any) => {
+        const msg = e?.message || 'Paystack failed to load. Please try again.';
+        setPaymentError(msg);
+        setIsProcessing(false);
+      },
+      onSuccess: async (transaction: any) => {
+        try {
+          setPaymentError(null);
+          setIsProcessing(true);
+          const reference = transaction?.reference || order.id;
+          const { data } = await axios.post('/api/payments/paystack/verify', { reference });
+          if (data?.status === 'success') {
+            await completeOrderUI(order.id, reference);
+            return;
+          }
+          setPaymentError('Payment verification failed. Please contact support if you were charged.');
+        } catch (err: any) {
+          const msg =
+            err?.response?.data?.error ||
+            err?.message ||
+            'Payment verification failed. Please contact support if you were charged.';
+          setPaymentError(msg);
+        } finally {
+          setIsProcessing(false);
+        }
+      }
+    });
   };
 
   const handleStripePayment = async (stripe: any, elements: any, order: any) => {
@@ -490,7 +538,7 @@ export default function CheckoutPage() {
                     disabled={isProcessing || !email || !firstName}
                     className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/25 hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {isProcessing ? 'Redirecting...' : `Pay ${formatPrice(total, currency, exchangeRates)} with Paystack`}
+                    {isProcessing ? 'Opening Paystack...' : `Pay ${formatPrice(total, currency, exchangeRates)} with Paystack`}
                   </button>
                 </div>
               )}

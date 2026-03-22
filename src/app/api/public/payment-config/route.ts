@@ -17,7 +17,7 @@ export async function GET() {
     currency: 'USD',
     providers: {
       stripe: { enabled: true, publicKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '' },
-      paystack: { enabled: false },
+      paystack: { enabled: false, publicKey: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || '' },
       paypal: { enabled: false, clientId: '', mode: 'sandbox' as const },
     },
   };
@@ -55,6 +55,7 @@ export async function GET() {
         },
         paystack: {
           enabled: !!providersFromNewShape?.paystack?.enabled,
+          publicKey: providersFromNewShape?.paystack?.public_key || '',
         },
         paypal: {
           enabled: !!providersFromNewShape?.paypal?.enabled,
@@ -73,9 +74,8 @@ export async function GET() {
     currency,
     providers: {
       stripe: { enabled: true, publicKey: legacyProvider === 'stripe' ? legacyPublicKey : '' },
-      paystack: { enabled: true },
+      paystack: { enabled: true, publicKey: legacyProvider === 'paystack' ? legacyPublicKey : '' },
       paypal: { enabled: true, clientId: legacyProvider === 'paypal' ? legacyPublicKey : '', mode: raw?.paypal_mode === 'live' ? 'live' : 'sandbox' },
     },
   });
 }
-
