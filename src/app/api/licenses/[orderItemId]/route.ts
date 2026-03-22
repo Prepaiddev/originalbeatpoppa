@@ -86,9 +86,9 @@ async function buildLicensePdf(args: {
   const issuedAtLabel = issuedAtDate.toLocaleString();
   const hashId = crypto.createHash('sha256').update(args.signature).digest('hex').slice(0, 16).toUpperCase();
 
-  const stampR = 58;
+  const stampR = 50;
   const stampCx = width - 90;
-  const stampCy = 120;
+  const stampCy = 95;
 
   page.drawCircle({
     x: stampCx,
@@ -127,30 +127,38 @@ async function buildLicensePdf(args: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  page.drawText('LICENSE & CLEARANCE CERTIFICATE', {
+  page.drawRectangle({
     x: 50,
-    y: height - 80,
-    size: 24,
+    y: height - 125,
+    width: width - 100,
+    height: 70,
+    color: rgb(0.97, 0.97, 0.98),
+    borderColor: rgb(0.92, 0.92, 0.92),
+    borderWidth: 1,
+  });
+  page.drawText('BEATPOPPA', {
+    x: 70,
+    y: height - 88,
+    size: 12,
     font: fontBold,
     color: rgb(0.88, 0.07, 0.28),
   });
-
-  page.drawText('Official BeatPoppa Marketplace Clearance', {
-    x: 50,
-    y: height - 105,
-    size: 12,
+  page.drawText('LICENSE CERTIFICATE', {
+    x: 70,
+    y: height - 108,
+    size: 24,
+    font: fontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  page.drawText('Verified marketplace document', {
+    x: 340,
+    y: height - 88,
+    size: 9,
     font: fontRegular,
     color: rgb(0.4, 0.4, 0.4),
   });
 
-  page.drawLine({
-    start: { x: 50, y: height - 120 },
-    end: { x: width - 50, y: height - 120 },
-    thickness: 2,
-    color: rgb(0.9, 0.9, 0.9),
-  });
-
-  let currentY = height - 155;
+  let currentY = height - 150;
 
   const introLines = wrapText(
     'This document certifies that the buyer has legally obtained a license to use the beat under the terms specified below. This license is protected under digital intellectual property law.',
@@ -171,7 +179,6 @@ async function buildLicensePdf(args: {
   drawRow('Certificate ID', args.code);
   drawRow('Hash ID', hashId);
   drawRow('Beat Title', args.beatTitle);
-  drawRow('Producer', args.producerName);
   drawRow('License Type', args.licenseType);
   drawRow('BPM / Key', `${args.bpm} / ${args.key}`);
   drawRow('Buyer Name', args.buyerName);
@@ -181,12 +188,12 @@ async function buildLicensePdf(args: {
   const features = normalizeFeatureList(args.licenseFeatures);
   const preview = buildRightsPreview(features);
 
-  currentY -= 6;
+  currentY -= 4;
   page.drawRectangle({
     x: 50,
-    y: currentY - 210,
+    y: currentY - 180,
     width: width - 100,
-    height: 210,
+    height: 180,
     color: rgb(0.98, 0.98, 0.98),
     borderColor: rgb(0.9, 0.9, 0.9),
     borderWidth: 1,
@@ -243,10 +250,7 @@ async function buildLicensePdf(args: {
     lineY -= 12;
   });
 
-  page.drawText('View Full License Agreement:', { x: 70, y: currentY - 198, size: 8, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
-  page.drawText(`${args.verifyUrl.split('/verify/')[0]}/licensing`, { x: 70, y: currentY - 212, size: 8, font: fontRegular, color: rgb(0.1, 0.4, 0.9) });
-
-  currentY -= 228;
+  currentY -= 194;
   page.drawText('DIGITAL VERIFICATION SIGNATURE', { x: 50, y: currentY, size: 9, font: fontBold, color: rgb(0.5, 0.5, 0.5) });
   currentY -= 15;
   const signatureChunked = args.signature.match(/.{1,90}/g) || [];
@@ -280,17 +284,9 @@ async function buildLicensePdf(args: {
     color: rgb(0.7, 0.7, 0.7),
   });
 
-  page.drawText('VERIFY AUTHENTICITY AT:', {
+  page.drawText(`Certificate Code: ${args.code}`, {
     x: 50,
-    y: 35,
-    size: 8,
-    font: fontBold,
-    color: rgb(0.5, 0.5, 0.5),
-  });
-
-  page.drawText(args.verifyUrl, {
-    x: 50,
-    y: 20,
+    y: 24,
     size: 10,
     font: fontRegular,
     color: rgb(1, 1, 1),

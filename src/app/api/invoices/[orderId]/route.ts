@@ -29,92 +29,96 @@ async function buildInvoicePdf(args: {
   const createdAtLabel = createdAtDate.toLocaleString();
   const hashId = crypto.createHash('sha256').update(`${args.orderId}:${args.transactionId}:${args.total}`).digest('hex').slice(0, 16).toUpperCase();
 
-  const stampR = 52;
-  const stampCx = width - 88;
-  const stampCy = 105;
+  page.drawText('BEATPOPPA', {
+    x: 50,
+    y: height - 52,
+    size: 11,
+    font: fontBold,
+    color: rgb(0.88, 0.07, 0.28),
+  });
+  page.drawText('RECEIPT', {
+    x: 50,
+    y: height - 80,
+    size: 26,
+    font: fontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  page.drawText(`Invoice ${args.orderId.slice(0, 8).toUpperCase()}`, {
+    x: 50,
+    y: height - 97,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.35, 0.35, 0.35),
+  });
+  page.drawText(`Date ${createdAtLabel}`, {
+    x: 50,
+    y: height - 111,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.35, 0.35, 0.35),
+  });
+  page.drawText(`Hash ID ${hashId}`, {
+    x: 50,
+    y: height - 125,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.35, 0.35, 0.35),
+  });
 
+  page.drawText('BEATPOPPA AUTHENTIC', {
+    x: 170,
+    y: height - 390,
+    size: 40,
+    font: fontBold,
+    color: rgb(0.94, 0.94, 0.94),
+  });
+
+  const stampR = 48;
+  const stampCx = width - 88;
+  const stampCy = height - 92;
   page.drawCircle({
     x: stampCx,
     y: stampCy,
     size: stampR,
-    borderColor: rgb(0.88, 0.07, 0.28),
-    borderWidth: 3,
+    borderColor: rgb(0.95, 0.6, 0.7),
+    borderWidth: 2,
     color: rgb(1, 1, 1),
   });
   page.drawText('PAID', {
-    x: stampCx - 20,
-    y: stampCy + 10,
-    size: 20,
+    x: stampCx - 19,
+    y: stampCy + 8,
+    size: 18,
     font: fontBold,
-    color: rgb(0.88, 0.07, 0.28),
+    color: rgb(0.95, 0.6, 0.7),
   });
   page.drawText(createdAtDate.toLocaleDateString(), {
-    x: stampCx - 34,
+    x: stampCx - 30,
     y: stampCy - 8,
     size: 7,
     font: fontRegular,
-    color: rgb(0.3, 0.3, 0.3),
-  });
-  page.drawText(createdAtDate.toLocaleTimeString(), {
-    x: stampCx - 28,
-    y: stampCy - 20,
-    size: 7,
-    font: fontRegular,
-    color: rgb(0.3, 0.3, 0.3),
-  });
-
-  page.drawText('BEATPOPPA RECEIPT', {
-    x: 50,
-    y: height - 70,
-    size: 22,
-    font: fontBold,
-    color: rgb(0.88, 0.07, 0.28),
-  });
-
-  page.drawText(`Invoice: ${args.orderId.slice(0, 8).toUpperCase()}`, {
-    x: 50,
-    y: height - 100,
-    size: 10,
-    font: fontRegular,
-    color: rgb(0.35, 0.35, 0.35),
-  });
-
-  page.drawText(`Date: ${createdAtLabel}`, {
-    x: 50,
-    y: height - 115,
-    size: 10,
-    font: fontRegular,
-    color: rgb(0.35, 0.35, 0.35),
-  });
-
-  page.drawText(`Hash ID: ${hashId}`, {
-    x: 50,
-    y: height - 130,
-    size: 10,
-    font: fontRegular,
-    color: rgb(0.35, 0.35, 0.35),
+    color: rgb(0.7, 0.7, 0.7),
   });
 
   page.drawLine({
-    start: { x: 50, y: height - 145 },
-    end: { x: width - 50, y: height - 145 },
+    start: { x: 50, y: height - 142 },
+    end: { x: width - 50, y: height - 142 },
     thickness: 1,
     color: rgb(0.9, 0.9, 0.9),
   });
 
-  page.drawText('Transaction Details', { x: 50, y: height - 175, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
-  page.drawText(`Payment Method: ${args.paymentProvider || 'N/A'}`, { x: 50, y: height - 192, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText(`Payment Status: ${args.paymentStatus || 'N/A'}`, { x: 50, y: height - 207, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText(`Transaction ID: ${args.transactionId || 'N/A'}`, { x: 50, y: height - 222, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText(`Currency: ${args.currency}`, { x: 50, y: height - 237, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('Transaction Details', { x: 50, y: height - 168, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(`Payment Method: ${args.paymentProvider || 'N/A'}`, { x: 50, y: height - 184, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Payment Status: ${args.paymentStatus || 'N/A'}`, { x: 50, y: height - 198, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Transaction ID: ${args.transactionId || 'N/A'}`, { x: 50, y: height - 212, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(`Currency: ${args.currency}`, { x: 50, y: height - 226, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
 
-  page.drawText('Billed To', { x: 330, y: height - 175, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
-  page.drawText(args.buyerName, { x: 330, y: height - 192, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText(args.buyerEmail, { x: 330, y: height - 207, size: 10, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('Billed To', { x: 345, y: height - 168, size: 11, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(args.buyerName, { x: 345, y: height - 184, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText(args.buyerEmail, { x: 345, y: height - 198, size: 9, font: fontRegular, color: rgb(0.2, 0.2, 0.2) });
 
-  let y = height - 270;
+  let y = height - 252;
   page.drawText('Item', { x: 50, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
-  page.drawText('License', { x: 330, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
+  page.drawText('License', { x: 340, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
   page.drawText('Price', { x: 520, y, size: 10, font: fontBold, color: rgb(0.3, 0.3, 0.3) });
 
   y -= 10;
@@ -128,16 +132,16 @@ async function buildInvoicePdf(args: {
 
   for (const item of args.items) {
     page.drawText(item.title.slice(0, 45), { x: 50, y, size: 10, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
-    page.drawText(item.licenseType.slice(0, 18), { x: 330, y, size: 10, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
+    page.drawText(item.licenseType.slice(0, 18), { x: 340, y, size: 10, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
     page.drawText(formatMoney(item.price), { x: 520, y, size: 10, font: fontRegular, color: rgb(0.15, 0.15, 0.15) });
     y -= 18;
-    if (y < 120) break;
+    if (y < 150) break;
   }
 
-  y = 110;
-  page.drawLine({ start: { x: 50, y: y + 25 }, end: { x: width - 50, y: y + 25 }, thickness: 1, color: rgb(0.92, 0.92, 0.92) });
-  page.drawText('Total', { x: 420, y: y + 5, size: 12, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
-  page.drawText(formatMoney(args.total), { x: 520, y: y + 5, size: 12, font: fontBold, color: rgb(0.88, 0.07, 0.28) });
+  const totalY = y - 8;
+  page.drawLine({ start: { x: 50, y: totalY + 18 }, end: { x: width - 50, y: totalY + 18 }, thickness: 1, color: rgb(0.92, 0.92, 0.92) });
+  page.drawText('Total', { x: 420, y: totalY, size: 12, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
+  page.drawText(formatMoney(args.total), { x: 520, y: totalY, size: 12, font: fontBold, color: rgb(0.88, 0.07, 0.28) });
 
   let qrImage: any = null;
   try {
@@ -148,21 +152,14 @@ async function buildInvoicePdf(args: {
     qrImage = await pdfDoc.embedPng(qrBytes);
   } catch {}
 
-  page.drawRectangle({ x: 50, y: 55, width: width - 100, height: 45, color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.92, 0.92, 0.92), borderWidth: 1 });
-  page.drawText('Verified Purchase', { x: 65, y: 85, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
-  page.drawText('Secured by BeatPoppa', { x: 200, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
-  page.drawText('This receipt is digitally signed', { x: 370, y: 85, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
-
-  page.drawText('Thank you for your purchase.', {
-    x: 50,
-    y: 40,
-    size: 10,
-    font: fontRegular,
-    color: rgb(0.35, 0.35, 0.35),
-  });
+  page.drawRectangle({ x: 50, y: 42, width: width - 100, height: 40, color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.92, 0.92, 0.92), borderWidth: 1 });
+  page.drawText('Verified Purchase', { x: 135, y: 67, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
+  page.drawText('Secured by BeatPoppa', { x: 270, y: 67, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('This receipt is digitally signed', { x: 425, y: 67, size: 9, font: fontBold, color: rgb(0.2, 0.2, 0.2) });
+  page.drawText('Thank you for your purchase.', { x: 135, y: 52, size: 9, font: fontRegular, color: rgb(0.35, 0.35, 0.35) });
 
   if (qrImage) {
-    page.drawImage(qrImage, { x: 50, y: 10, width: 75, height: 75 });
+    page.drawImage(qrImage, { x: 54, y: 42, width: 26, height: 26 });
   }
 
   const pdfBytes = await pdfDoc.save();
