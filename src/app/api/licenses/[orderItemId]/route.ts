@@ -4,6 +4,8 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function buildVerificationCode(orderItemId: string) {
   return `BP-${orderItemId.replaceAll('-', '').slice(0, 12).toUpperCase()}`;
 }
@@ -299,6 +301,9 @@ async function buildLicensePdf(args: {
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ orderItemId: string }> }) {
   const { orderItemId } = await params;
+  if (!UUID_RE.test(orderItemId)) {
+    return NextResponse.json({ error: 'Invalid order item id format' }, { status: 400 });
+  }
   const auth = await createClient();
   const admin = createAdminClient();
 

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function extractStoragePath(input: string, bucket: string) {
   if (!input) return input;
   if (!input.startsWith('http')) return input.replace(/^\/+/, '');
@@ -25,6 +27,9 @@ function extractStoragePath(input: string, bucket: string) {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ orderId: string }> }) {
   try {
     const { orderId } = await params;
+    if (!UUID_RE.test(orderId)) {
+      return NextResponse.json({ error: 'Invalid order id format' }, { status: 400 });
+    }
     const auth = await createClient();
     const admin = createAdminClient();
     
@@ -59,10 +64,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
       return NextResponse.json({ error: 'Order not completed' }, { status: 400 });
     }
 
-    const { data: items, error: itemsError } = await admin
+    let items: any[] | null = null;
+    let itemsError: any = null;
+
+    const withMaster = await admin
       .from('order_items')
       .select('id, beat_id, beats(title, master_url, audio_url)')
       .eq('order_id', orderId);
+
+    if (withMaster.error && String(withMaster.error.message || '').toLowerCase().includes('master_url')) {
+      const withoutMaster = await admin
+        .from('order_items')
+        .select('id, beat_id, beats(title, audio_url)')
+        .eq('order_id', orderId);
+      items = withoutMaster.data as any[] | null;
+      itemsError = withoutMaster.error;
+    } else {
+      items = withMaster.data as any[] | null;
+      itemsError = withMaster.error;
+    }
 
     if (itemsError) {
       return NextResponse.json({ error: itemsError.message }, { status: 500 });
@@ -85,8 +105,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ orde
           };
         }
 
-        const bucket = beat.master_url ? 'masters' : 'beats';
-        const rawPath = beat.master_url || beat.audio_url;
+        const rawMaster = (beat as any).master_url;
+        const bucket = rawMaster ? 'masters' : 'beats';
+        const rawPath = rawMaster || beat.audio_url;
         const path = extractStoragePath(rawPath, bucket);
         if (!path) {
           return {

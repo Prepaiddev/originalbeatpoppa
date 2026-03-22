@@ -53,6 +53,7 @@ function UploadBeatContent() {
 
   const [availableLicenses, setAvailableLicenses] = useState<any[]>([]);
   const [selectedLicenses, setSelectedLicenses] = useState<Record<string, { enabled: boolean, price: number }>>({});
+  const [licensePriceInputs, setLicensePriceInputs] = useState<Record<string, string>>({});
   const [isFree, setIsFree] = useState(false);
   const [preFreeLicenses, setPreFreeLicenses] = useState<Record<string, { enabled: boolean, price: number }> | null>(null);
 
@@ -76,10 +77,13 @@ function UploadBeatContent() {
           // Initialize selected licenses with defaults if not editing
           if (!editId) {
             const initial: Record<string, { enabled: boolean, price: number }> = {};
+            const initialInputs: Record<string, string> = {};
             data.forEach((l: any) => {
               initial[l.id] = { enabled: l.name.includes('Basic'), price: l.default_price };
+              initialInputs[l.id] = String(l.default_price ?? 0);
             });
             setSelectedLicenses(initial);
+            setLicensePriceInputs(initialInputs);
           }
         }
       } catch (err) {
@@ -98,6 +102,13 @@ function UploadBeatContent() {
         if (!next[l.id]) next[l.id] = { enabled: false, price: l.default_price };
         if (typeof next[l.id].price !== 'number' || Number.isNaN(next[l.id].price)) next[l.id].price = l.default_price;
         if (next[l.id].price < l.default_price) next[l.id].price = l.default_price;
+      });
+      return next;
+    });
+    setLicensePriceInputs((prev) => {
+      const next = { ...prev };
+      availableLicenses.forEach((l: any) => {
+        if (typeof next[l.id] !== 'string') next[l.id] = String(l.default_price ?? 0);
       });
       return next;
     });
@@ -123,8 +134,22 @@ function UploadBeatContent() {
         });
         return next;
       });
+      setLicensePriceInputs((prev) => {
+        const next = { ...prev };
+        availableLicenses.forEach((l: any) => {
+          next[l.id] = l.id === freeLicense.id ? '0' : String(Math.max(Number(prev[l.id] ?? l.default_price), Number(l.default_price || 0)));
+        });
+        return next;
+      });
     } else if (preFreeLicenses) {
       setSelectedLicenses(preFreeLicenses);
+      setLicensePriceInputs(() => {
+        const next: Record<string, string> = {};
+        Object.entries(preFreeLicenses).forEach(([id, v]) => {
+          next[id] = String(v.price ?? 0);
+        });
+        return next;
+      });
       setPreFreeLicenses(null);
     }
   }, [isFree, availableLicenses.length]);
@@ -173,6 +198,11 @@ function UploadBeatContent() {
               initial[bl.license_type_id] = { enabled: bl.is_active, price: bl.price };
             });
             setSelectedLicenses(initial);
+            const inputs: Record<string, string> = {};
+            Object.entries(initial).forEach(([id, v]) => {
+              inputs[id] = String((v as any).price ?? 0);
+            });
+            setLicensePriceInputs(inputs);
           }
           
           // Start at step 2 (Details) since files are already there
@@ -196,12 +226,19 @@ function UploadBeatContent() {
     }
   };
 
-  const handlePriceChange = (id: string, value: string, basePrice: number) => {
-    const price = parseFloat(value);
-    const nextPrice = Math.max(basePrice, isNaN(price) ? basePrice : price);
-    setSelectedLicenses(prev => ({
+  const handlePriceChange = (id: string, value: string) => {
+    if (!/^\d*\.?\d*$/.test(value)) return;
+    setLicensePriceInputs((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handlePriceBlur = (id: string, basePrice: number) => {
+    const raw = licensePriceInputs[id];
+    const parsed = raw === '' ? NaN : parseFloat(raw);
+    const finalPrice = Math.max(basePrice, Number.isFinite(parsed) ? parsed : basePrice);
+    setLicensePriceInputs((prev) => ({ ...prev, [id]: String(finalPrice) }));
+    setSelectedLicenses((prev) => ({
       ...prev,
-      [id]: { ...(prev[id] || { enabled: true, price: basePrice }), price: nextPrice }
+      [id]: { ...(prev[id] || { enabled: true, price: basePrice }), price: finalPrice }
     }));
   };
 
@@ -218,6 +255,10 @@ function UploadBeatContent() {
         [id]: { enabled: nextEnabled, price: Math.max(defaultPrice, nextEnabled ? nextPrice : nextPrice) }
       };
     });
+    setLicensePriceInputs((prev) => ({
+      ...prev,
+      [id]: String(Math.max(defaultPrice, Number(prev[id] ?? defaultPrice)))
+    }));
   };
 
   const handleUpload = async () => {
@@ -366,7 +407,6 @@ function UploadBeatContent() {
       }
 
       router.push('/dashboard/creator/my-beats');
-      router.refresh();
 
     } catch (err: any) {
       console.error('Upload/Update error:', err);
@@ -619,7 +659,7 @@ function UploadBeatContent() {
                             </p>
                             <p className="text-[10px] text-zinc-500 font-black uppercase tracking-widest mt-1">
                               Your earnings: {formatPrice(
-                                Math.max(0, Number(selectedLicenses[license.id]?.price ?? license.default_price) - Number(license.default_price || 0)),
+                                Math.max(0, Number((licensePriceInputs[license.id] === '' ? selectedLicenses[license.id]?.price : licensePriceInputs[license.id]) ?? license.default_price) - Number(license.default_price || 0)),
                                 'USD',
                                 exchangeRates,
                                 true
@@ -634,8 +674,9 @@ function UploadBeatContent() {
                           </div>
                           <input 
                             type="number"
-                            value={selectedLicenses[license.id]?.price || license.default_price}
-                            onChange={(e) => handlePriceChange(license.id, e.target.value, Number(license.default_price || 0))}
+                            value={licensePriceInputs[license.id] ?? String(selectedLicenses[license.id]?.price ?? license.default_price)}
+                            onChange={(e) => handlePriceChange(license.id, e.target.value)}
+                            onBlur={() => handlePriceBlur(license.id, Number(license.default_price || 0))}
                             min={Number(license.default_price || 0)}
                             step="0.01"
                             disabled={!selectedLicenses[license.id]?.enabled}
