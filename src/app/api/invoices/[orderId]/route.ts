@@ -139,11 +139,14 @@ async function buildInvoicePdf(args: {
   page.drawText('Total', { x: 420, y: y + 5, size: 12, font: fontBold, color: rgb(0.1, 0.1, 0.1) });
   page.drawText(formatMoney(args.total), { x: 520, y: y + 5, size: 12, font: fontBold, color: rgb(0.88, 0.07, 0.28) });
 
-  const QRCode = (await import('qrcode')).default as any;
-  const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 150 });
-  const qrBase64 = String(qrDataUrl).split(',')[1] || '';
-  const qrBytes = Buffer.from(qrBase64, 'base64');
-  const qrImage = await pdfDoc.embedPng(qrBytes);
+  let qrImage: any = null;
+  try {
+    const QRCode = (await import('qrcode')).default as any;
+    const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 150 });
+    const qrBase64 = String(qrDataUrl).split(',')[1] || '';
+    const qrBytes = Buffer.from(qrBase64, 'base64');
+    qrImage = await pdfDoc.embedPng(qrBytes);
+  } catch {}
 
   page.drawRectangle({ x: 50, y: 55, width: width - 100, height: 45, color: rgb(0.98, 0.98, 0.98), borderColor: rgb(0.92, 0.92, 0.92), borderWidth: 1 });
   page.drawText('Verified Purchase ✔', { x: 65, y: 85, size: 9, font: fontBold, color: rgb(0.1, 0.45, 0.2) });
@@ -158,89 +161,97 @@ async function buildInvoicePdf(args: {
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  page.drawImage(qrImage, { x: 50, y: 10, width: 75, height: 75 });
+  if (qrImage) {
+    page.drawImage(qrImage, { x: 50, y: 10, width: 75, height: 75 });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 }
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ orderId: string }> }) {
-  const { orderId } = await params;
-  if (!UUID_RE.test(orderId)) {
-    return NextResponse.json({ error: 'Invalid order id format' }, { status: 400 });
-  }
-  const auth = await createClient();
-  const admin = createAdminClient();
-  const db: any = admin || auth;
-
-  const { data: userData } = await auth.auth.getUser();
-  const user = userData?.user;
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: order, error: orderError } = await db
-    .from('orders')
-    .select('id, buyer_id, created_at, status, total_amount, payment_provider, transaction_id')
-    .eq('id', orderId)
-    .maybeSingle();
-
-  if (orderError || !order) return NextResponse.json({ error: orderError?.message || 'Order not found' }, { status: 404 });
-
-  if (order.buyer_id !== user.id) {
-    if (admin) {
-      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
-      if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    } else if (user.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  try {
+    const { orderId } = await params;
+    if (!UUID_RE.test(orderId)) {
+      return NextResponse.json({ error: 'Invalid order id format' }, { status: 400 });
     }
+    const auth = await createClient();
+    const admin = createAdminClient();
+    const db: any = admin || auth;
+
+    const { data: userData } = await auth.auth.getUser();
+    const user = userData?.user;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { data: order, error: orderError } = await db
+      .from('orders')
+      .select('id, buyer_id, created_at, status, total_amount, payment_provider, transaction_id')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderError || !order) return NextResponse.json({ error: orderError?.message || 'Order not found' }, { status: 404 });
+
+    if (order.buyer_id !== user.id) {
+      if (admin) {
+        const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
+        if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      } else if (user.user_metadata?.role !== 'admin') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    const buyerName = (user.user_metadata?.display_name as string) || user.email || 'Customer';
+    const buyerEmail = user.email || '';
+
+    const { data: itemsData, error: itemsError } = await db
+      .from('order_items')
+      .select('license_type, price, beats(title)')
+      .eq('order_id', orderId);
+
+    if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 });
+
+    const items = (itemsData || []).map((i: any) => ({
+      title: i?.beats?.title || 'Beat',
+      licenseType: i?.license_type || 'License',
+      price: Number(i?.price || 0),
+    }));
+
+    let normalizedItems = items;
+    try {
+      const licenseTypeIds = Array.from(new Set(items.map((i) => i.licenseType).filter((x) => typeof x === 'string' && x.length > 0)));
+      const licenseTypes = licenseTypeIds.length
+        ? (await db.from('license_types').select('id, name').in('id', licenseTypeIds)).data
+        : [];
+      const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
+      normalizedItems = items.map((i: any) => ({ ...i, licenseType: licenseTypeMap.get(i.licenseType) || i.licenseType }));
+    } catch {}
+
+    const total = Number(order.total_amount || items.reduce((sum: number, i: any) => sum + Number(i.price || 0), 0));
+
+    const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
+    const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/dashboard/buyer/orders`;
+
+    const pdf = await buildInvoicePdf({
+      orderId,
+      createdAt: order.created_at,
+      buyerName,
+      buyerEmail,
+      items: normalizedItems,
+      currency: 'USD',
+      total,
+      paymentProvider: order.payment_provider || 'N/A',
+      paymentStatus: order.status === 'completed' ? 'Paid ✅' : order.status,
+      transactionId: order.transaction_id || order.id,
+      verifyUrl,
+    });
+
+    return new NextResponse(pdf, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="Invoice_${orderId.slice(0, 8).toUpperCase()}.pdf"`,
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Unable to generate receipt' }, { status: 500 });
   }
-
-  const { data: buyerProfile } = await db.from('profiles').select('display_name, email').eq('id', order.buyer_id).maybeSingle();
-  const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
-  const buyerEmail = buyerProfile?.email || '';
-
-  const { data: itemsData, error: itemsError } = await db
-    .from('order_items')
-    .select('license_type, price, beats(title)')
-    .eq('order_id', orderId);
-
-  if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 });
-
-  const items = (itemsData || []).map((i: any) => ({
-    title: i?.beats?.title || 'Beat',
-    licenseType: i?.license_type || 'License',
-    price: Number(i?.price || 0),
-  }));
-
-  const licenseTypeIds = Array.from(new Set(items.map((i) => i.licenseType).filter((x) => typeof x === 'string' && x.length > 0)));
-  const licenseTypes = licenseTypeIds.length
-    ? (await db.from('license_types').select('id, name').in('id', licenseTypeIds)).data
-    : [];
-  const licenseTypeMap = new Map<string, string>((licenseTypes || []).map((l: any) => [l.id, l.name]));
-  const normalizedItems = items.map((i: any) => ({ ...i, licenseType: licenseTypeMap.get(i.licenseType) || i.licenseType }));
-
-  const total = Number(order.total_amount || items.reduce((sum: number, i: any) => sum + Number(i.price || 0), 0));
-
-  const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
-  const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/dashboard/buyer/orders`;
-
-  const pdf = await buildInvoicePdf({
-    orderId,
-    createdAt: order.created_at,
-    buyerName,
-    buyerEmail,
-    items: normalizedItems,
-    currency: 'USD',
-    total,
-    paymentProvider: order.payment_provider || 'N/A',
-    paymentStatus: order.status === 'completed' ? 'Paid ✅' : order.status,
-    transactionId: order.transaction_id || order.id,
-    verifyUrl,
-  });
-
-  return new NextResponse(pdf, {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="Invoice_${orderId.slice(0, 8).toUpperCase()}.pdf"`,
-    },
-  });
 }

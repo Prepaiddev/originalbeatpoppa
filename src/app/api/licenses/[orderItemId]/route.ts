@@ -255,11 +255,14 @@ async function buildLicensePdf(args: {
     currentY -= 10;
   });
 
-  const QRCode = (await import('qrcode')).default as any;
-  const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 140 });
-  const qrBase64 = String(qrDataUrl).split(',')[1] || '';
-  const qrBytes = Buffer.from(qrBase64, 'base64');
-  const qrImage = await pdfDoc.embedPng(qrBytes);
+  let qrImage: any = null;
+  try {
+    const QRCode = (await import('qrcode')).default as any;
+    const qrDataUrl = await QRCode.toDataURL(args.verifyUrl, { margin: 1, width: 140 });
+    const qrBase64 = String(qrDataUrl).split(',')[1] || '';
+    const qrBytes = Buffer.from(qrBase64, 'base64');
+    qrImage = await pdfDoc.embedPng(qrBytes);
+  } catch {}
 
   page.drawRectangle({
     x: 0,
@@ -293,121 +296,131 @@ async function buildLicensePdf(args: {
     color: rgb(1, 1, 1),
   });
 
-  page.drawImage(qrImage, { x: width - 60, y: 6, width: 48, height: 48 });
+  if (qrImage) {
+    page.drawImage(qrImage, { x: width - 60, y: 6, width: 48, height: 48 });
+  }
 
   const pdfBytes = await pdfDoc.save();
   return Buffer.from(pdfBytes);
 }
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ orderItemId: string }> }) {
-  const { orderItemId } = await params;
-  if (!UUID_RE.test(orderItemId)) {
-    return NextResponse.json({ error: 'Invalid order item id format' }, { status: 400 });
-  }
-  const auth = await createClient();
-  const admin = createAdminClient();
-  const db: any = admin || auth;
-
-  const { data: userData } = await auth.auth.getUser();
-  const user = userData?.user;
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { data: item, error: itemError } = await db
-    .from('order_items')
-    .select('id, order_id, beat_id, license_type, price, orders(buyer_id, status, created_at, transaction_id), beats(title, bpm, key, profiles:artist_id(display_name))')
-    .eq('id', orderItemId)
-    .maybeSingle();
-
-  if (itemError || !item) return NextResponse.json({ error: itemError?.message || 'Order item not found' }, { status: 404 });
-
-  const buyerId = (item as any)?.orders?.buyer_id;
-  if (buyerId !== user.id) {
-    if (admin) {
-      const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
-      if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    } else if (user.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-  }
-
-  const { data: buyerProfile } = await db.from('profiles').select('display_name, email').eq('id', buyerId).maybeSingle();
-
-  const beatTitle = (item as any)?.beats?.title || 'Beat';
-  const producerName = (item as any)?.beats?.profiles?.display_name || 'Producer';
-  const buyerName = buyerProfile?.display_name || buyerProfile?.email || 'Customer';
-  const rawLicenseTypeId = (item as any)?.license_type || '';
-  const { data: licenseTypeRow } = await db
-    .from('license_types')
-    .select('name, description, features')
-    .eq('id', rawLicenseTypeId)
-    .maybeSingle();
-
-  const licenseType = licenseTypeRow?.name || rawLicenseTypeId || 'License';
-  const licenseDescription = licenseTypeRow?.description || '';
-  const licenseFeatures = Array.isArray(licenseTypeRow?.features) ? licenseTypeRow?.features : [];
-  const bpm = Number((item as any)?.beats?.bpm || 0);
-  const musicalKey = String((item as any)?.beats?.key || 'N/A');
-  const issuedAt = (item as any)?.orders?.created_at || new Date().toISOString();
-  const transactionId = (item as any)?.orders?.transaction_id || (item as any)?.order_id || 'N/A';
-
-  const code = buildVerificationCode(orderItemId);
-  const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
-  const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/verify/${code}`;
-
-  const payload = {
-    order_item_id: orderItemId,
-    beat_id: (item as any)?.beat_id,
-    beat_title: beatTitle,
-    producer_name: producerName,
-    buyer_name: buyerName,
-    license_type: licenseType,
-    license_description: licenseDescription,
-    license_features: licenseFeatures,
-    bpm,
-    key: musicalKey,
-    issued_at: issuedAt,
-    transaction_id: transactionId,
-    code,
-  };
-
-  const signature = buildSignature(payload);
-
   try {
-    await db
-      .from('licenses')
-      .upsert(
-        {
-          order_item_id: orderItemId,
-          beat_id: (item as any)?.beat_id,
-          license_type: licenseType,
-          verification_code: code,
-          cryptographic_signature: signature,
-          metadata: { ...payload },
-        },
-        { onConflict: 'verification_code' }
-      );
-  } catch {}
+    const { orderItemId } = await params;
+    if (!UUID_RE.test(orderItemId)) {
+      return NextResponse.json({ error: 'Invalid order item id format' }, { status: 400 });
+    }
+    const auth = await createClient();
+    const admin = createAdminClient();
+    const db: any = admin || auth;
 
-  const pdfBuffer = await buildLicensePdf({
-    code,
-    signature,
-    beatTitle,
-    producerName,
-    buyerName,
-    licenseType,
-    licenseDescription,
-    licenseFeatures,
-    bpm,
-    key: musicalKey,
-    issuedAt,
-    transactionId,
-    verifyUrl,
-  });
+    const { data: userData } = await auth.auth.getUser();
+    const user = userData?.user;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  return new NextResponse(pdfBuffer, {
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${beatTitle.replaceAll('"', '')}_License_${code}.pdf"`,
-    },
-  });
+    const { data: item, error: itemError } = await db
+      .from('order_items')
+      .select('id, order_id, beat_id, license_type, price, orders(buyer_id, status, created_at, transaction_id), beats(title, bpm, key)')
+      .eq('id', orderItemId)
+      .maybeSingle();
+
+    if (itemError || !item) return NextResponse.json({ error: itemError?.message || 'Order item not found' }, { status: 404 });
+
+    const buyerId = (item as any)?.orders?.buyer_id;
+    if (buyerId !== user.id) {
+      if (admin) {
+        const { data: profile } = await admin.from('profiles').select('role').eq('id', user.id).maybeSingle();
+        if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      } else if (user.user_metadata?.role !== 'admin') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    const beatTitle = (item as any)?.beats?.title || 'Beat';
+    const producerName = 'Producer';
+    const buyerName = (user.user_metadata?.display_name as string) || user.email || 'Customer';
+    const rawLicenseTypeId = (item as any)?.license_type || '';
+
+    let licenseType = rawLicenseTypeId || 'License';
+    let licenseDescription = '';
+    let licenseFeatures: string[] = [];
+    try {
+      const { data: licenseTypeRow } = await db
+        .from('license_types')
+        .select('name, description, features')
+        .eq('id', rawLicenseTypeId)
+        .maybeSingle();
+      licenseType = licenseTypeRow?.name || licenseType;
+      licenseDescription = licenseTypeRow?.description || '';
+      licenseFeatures = Array.isArray(licenseTypeRow?.features) ? licenseTypeRow.features : [];
+    } catch {}
+
+    const bpm = Number((item as any)?.beats?.bpm || 0);
+    const musicalKey = String((item as any)?.beats?.key || 'N/A');
+    const issuedAt = (item as any)?.orders?.created_at || new Date().toISOString();
+    const transactionId = (item as any)?.orders?.transaction_id || (item as any)?.order_id || 'N/A';
+
+    const code = buildVerificationCode(orderItemId);
+    const verifyBase = process.env.NEXT_PUBLIC_APP_URL || 'https://beatpoppadjs.vercel.app';
+    const verifyUrl = `${verifyBase.replace(/\/+$/, '')}/verify/${code}`;
+
+    const payload = {
+      order_item_id: orderItemId,
+      beat_id: (item as any)?.beat_id,
+      beat_title: beatTitle,
+      producer_name: producerName,
+      buyer_name: buyerName,
+      license_type: licenseType,
+      license_description: licenseDescription,
+      license_features: licenseFeatures,
+      bpm,
+      key: musicalKey,
+      issued_at: issuedAt,
+      transaction_id: transactionId,
+      code,
+    };
+
+    const signature = buildSignature(payload);
+
+    try {
+      await db
+        .from('licenses')
+        .upsert(
+          {
+            order_item_id: orderItemId,
+            beat_id: (item as any)?.beat_id,
+            license_type: licenseType,
+            verification_code: code,
+            cryptographic_signature: signature,
+            metadata: { ...payload },
+          },
+          { onConflict: 'verification_code' }
+        );
+    } catch {}
+
+    const pdfBuffer = await buildLicensePdf({
+      code,
+      signature,
+      beatTitle,
+      producerName,
+      buyerName,
+      licenseType,
+      licenseDescription,
+      licenseFeatures,
+      bpm,
+      key: musicalKey,
+      issuedAt,
+      transactionId,
+      verifyUrl,
+    });
+
+    return new NextResponse(pdfBuffer, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${beatTitle.replaceAll('"', '')}_License_${code}.pdf"`,
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || 'Unable to generate license' }, { status: 500 });
+  }
 }
