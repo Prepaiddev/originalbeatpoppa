@@ -1,17 +1,26 @@
 import axios from 'axios';
 
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
-const PAYPAL_SECRET_KEY = process.env.PAYPAL_SECRET_KEY;
-const PAYPAL_MODE = process.env.PAYPAL_MODE || 'sandbox';
+type PayPalMode = 'sandbox' | 'live';
 
-const BASE_URL = PAYPAL_MODE === 'sandbox' 
-  ? 'https://api-m.sandbox.paypal.com' 
-  : 'https://api-m.paypal.com';
+function resolvePayPalMode(mode?: string): PayPalMode {
+  return mode === 'live' ? 'live' : 'sandbox';
+}
 
-async function getAccessToken() {
-  const auth = Buffer.from(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET_KEY}`).toString('base64');
+function resolveBaseUrl(mode: PayPalMode) {
+  return mode === 'sandbox' ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
+}
+
+async function getAccessToken(opts?: { clientId?: string; secretKey?: string; mode?: PayPalMode }) {
+  const clientId = opts?.clientId || process.env.PAYPAL_CLIENT_ID;
+  const secretKey = opts?.secretKey || process.env.PAYPAL_SECRET_KEY;
+  const mode = opts?.mode || resolvePayPalMode(process.env.PAYPAL_MODE);
+
+  if (!clientId || !secretKey) throw new Error('PayPal credentials are not configured');
+
+  const baseUrl = resolveBaseUrl(mode);
+  const auth = Buffer.from(`${clientId}:${secretKey}`).toString('base64');
   const response = await axios.post(
-    `${BASE_URL}/v1/oauth2/token`,
+    `${baseUrl}/v1/oauth2/token`,
     'grant_type=client_credentials',
     {
       headers: {
@@ -24,10 +33,12 @@ async function getAccessToken() {
 }
 
 export const paypal = {
-  async createOrder(amount: number, currency: string, orderId: string) {
-    const accessToken = await getAccessToken();
+  async createOrder(amount: number, currency: string, orderId: string, opts?: { clientId?: string; secretKey?: string; mode?: PayPalMode }) {
+    const mode = opts?.mode || resolvePayPalMode(process.env.PAYPAL_MODE);
+    const baseUrl = resolveBaseUrl(mode);
+    const accessToken = await getAccessToken(opts);
     const response = await axios.post(
-      `${BASE_URL}/v2/checkout/orders`,
+      `${baseUrl}/v2/checkout/orders`,
       {
         intent: 'CAPTURE',
         purchase_units: [
@@ -53,10 +64,12 @@ export const paypal = {
     return response.data;
   },
 
-  async captureOrder(paypalOrderId: string) {
-    const accessToken = await getAccessToken();
+  async captureOrder(paypalOrderId: string, opts?: { clientId?: string; secretKey?: string; mode?: PayPalMode }) {
+    const mode = opts?.mode || resolvePayPalMode(process.env.PAYPAL_MODE);
+    const baseUrl = resolveBaseUrl(mode);
+    const accessToken = await getAccessToken(opts);
     const response = await axios.post(
-      `${BASE_URL}/v2/checkout/orders/${paypalOrderId}/capture`,
+      `${baseUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
       {},
       {
         headers: {

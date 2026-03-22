@@ -1,9 +1,28 @@
 import axios from 'axios';
 
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+function resolvePaystackSecretKey(secretKey?: string) {
+  const resolved = secretKey || process.env.PAYSTACK_SECRET_KEY;
+  if (!resolved) throw new Error('Paystack secret key is not configured');
+  return resolved;
+}
+
+function resolveCallbackBaseUrl(callbackBaseUrl?: string) {
+  const resolved = callbackBaseUrl || process.env.NEXT_PUBLIC_APP_URL;
+  if (!resolved) throw new Error('App URL is not configured for Paystack callback');
+  return resolved.replace(/\/+$/, '');
+}
 
 export const paystack = {
-  async initializeTransaction(amount: number, email: string, orderId: string, currency: string = 'NGN') {
+  async initializeTransaction(
+    amount: number,
+    email: string,
+    orderId: string,
+    currency: string = 'NGN',
+    opts?: { secretKey?: string; callbackBaseUrl?: string }
+  ) {
+    const secretKey = resolvePaystackSecretKey(opts?.secretKey);
+    const callbackBaseUrl = resolveCallbackBaseUrl(opts?.callbackBaseUrl);
+
     const response = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
@@ -11,7 +30,7 @@ export const paystack = {
         email,
         currency,
         reference: orderId,
-        callback_url: `${process.env.NEXT_PUBLIC_APP_URL}/checkout/verify?provider=paystack`,
+        callback_url: `${callbackBaseUrl}/checkout/verify?provider=paystack`,
         metadata: {
           orderId,
           custom_fields: [
@@ -25,7 +44,7 @@ export const paystack = {
       },
       {
         headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${secretKey}`,
           'Content-Type': 'application/json',
         },
       }
@@ -33,10 +52,11 @@ export const paystack = {
     return response.data;
   },
 
-  async verifyTransaction(reference: string) {
+  async verifyTransaction(reference: string, opts?: { secretKey?: string }) {
+    const secretKey = resolvePaystackSecretKey(opts?.secretKey);
     const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
       headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        Authorization: `Bearer ${secretKey}`,
       },
     });
     return response.data;

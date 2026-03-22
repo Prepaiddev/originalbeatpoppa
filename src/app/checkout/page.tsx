@@ -29,10 +29,13 @@ export default function CheckoutPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   
   const [paymentSettings, setPaymentSettings] = useState({
-    provider: 'stripe',
+    defaultProvider: 'stripe' as 'stripe' | 'paystack' | 'paypal',
     currency: 'USD',
-    publicKey: '',
-    paypalClientId: '',
+    providers: {
+      stripe: { enabled: true, publicKey: '' },
+      paystack: { enabled: true },
+      paypal: { enabled: true, clientId: '', mode: 'sandbox' as 'sandbox' | 'live' },
+    },
   });
 
   const [paymentMethod, setPaymentMethod] = useState<string>('card');
@@ -56,32 +59,44 @@ export default function CheckoutPage() {
   useEffect(() => {
     async function fetchPaymentSettings() {
       try {
-        const { data, error } = await supabase
-          .from('platform_settings')
-          .select('value')
-          .eq('key', 'payment_config')
-          .single();
-        
-        if (data?.value) {
-          const config = data.value;
-          const updatedSettings = {
-            provider: config.provider || 'stripe',
-            currency: config.currency || 'USD',
-            publicKey: config.public_key || '',
-            paypalClientId: config.provider === 'paypal' ? config.public_key : '',
-          };
-          setPaymentSettings(updatedSettings);
+        const { data } = await axios.get('/api/public/payment-config');
 
-          if (config.provider === 'stripe' && config.public_key) {
-            setStripePromise(loadStripe(config.public_key));
-          }
+        const nextSettings = {
+          defaultProvider: (data?.defaultProvider || 'stripe') as 'stripe' | 'paystack' | 'paypal',
+          currency: data?.currency || 'USD',
+          providers: {
+            stripe: { enabled: !!data?.providers?.stripe?.enabled, publicKey: data?.providers?.stripe?.publicKey || '' },
+            paystack: { enabled: !!data?.providers?.paystack?.enabled },
+            paypal: {
+              enabled: !!data?.providers?.paypal?.enabled,
+              clientId: data?.providers?.paypal?.clientId || '',
+              mode: (data?.providers?.paypal?.mode || 'sandbox') as 'sandbox' | 'live',
+            },
+          },
+        };
 
-          if (config.provider === 'stripe') setPaymentMethod('card');
-          else if (config.provider === 'paystack') setPaymentMethod('paystack');
-          else if (config.provider === 'paypal') setPaymentMethod('paypal');
+        setPaymentSettings(nextSettings);
+
+        if (nextSettings.providers.stripe.enabled && nextSettings.providers.stripe.publicKey) {
+          setStripePromise(loadStripe(nextSettings.providers.stripe.publicKey));
+        } else {
+          setStripePromise(null);
         }
+
+        const defaultProvider = nextSettings.defaultProvider;
+        const enabledProvidersInPriority: Array<'stripe' | 'paystack' | 'paypal'> = ['stripe', 'paystack', 'paypal'];
+        const resolvedProvider =
+          (defaultProvider === 'stripe' && nextSettings.providers.stripe.enabled) ||
+          (defaultProvider === 'paystack' && nextSettings.providers.paystack.enabled) ||
+          (defaultProvider === 'paypal' && nextSettings.providers.paypal.enabled)
+            ? defaultProvider
+            : enabledProvidersInPriority.find((p) => nextSettings.providers[p].enabled) || 'stripe';
+
+        if (resolvedProvider === 'stripe') setPaymentMethod('card');
+        else if (resolvedProvider === 'paystack') setPaymentMethod('paystack');
+        else setPaymentMethod('paypal');
       } catch (error) {
-        console.error('Error loading payment settings:', error);
+        setPaymentError('Payment configuration is unavailable. Please try again in a moment.');
       } finally {
         setLoadingSettings(false);
       }
@@ -197,9 +212,16 @@ export default function CheckoutPage() {
       
       if (data.authorization_url) {
         window.location.href = data.authorization_url;
+        return;
       }
+      setPaymentError(data?.error || 'Paystack initialization failed. Please check Paystack settings.');
     } catch (err: any) {
-      setPaymentError(err.message || 'Paystack initialization failed');
+      const msg =
+        err?.response?.data?.error ||
+        err?.message ||
+        'Paystack initialization failed. Please check Paystack settings.';
+      setPaymentError(msg);
+    } finally {
       setIsProcessing(false);
     }
   };
@@ -237,25 +259,31 @@ export default function CheckoutPage() {
   };
 
   const paymentMethods = [
-    { 
-      id: 'card', 
-      name: 'Credit Card (Stripe)', 
-      logo: "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg",
-      provider: 'stripe' 
-    },
-    { 
-      id: 'paystack', 
-      name: 'Paystack', 
-      logo: "https://upload.wikimedia.org/wikipedia/commons/0/0b/Paystack_Logo.png",
-      provider: 'paystack' 
-    },
-    { 
-      id: 'paypal', 
-      name: 'PayPal', 
-      logo: "https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg",
-      provider: 'paypal' 
-    },
-  ];
+    paymentSettings.providers.stripe.enabled
+      ? { 
+          id: 'card', 
+          name: 'Credit Card (Stripe)', 
+          logo: "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg",
+          provider: 'stripe' as const
+        }
+      : null,
+    paymentSettings.providers.paystack.enabled
+      ? { 
+          id: 'paystack', 
+          name: 'Paystack', 
+          logo: "https://upload.wikimedia.org/wikipedia/commons/0/0b/Paystack_Logo.png",
+          provider: 'paystack' as const
+        }
+      : null,
+    paymentSettings.providers.paypal.enabled
+      ? { 
+          id: 'paypal', 
+          name: 'PayPal', 
+          logo: "https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg",
+          provider: 'paypal' as const
+        }
+      : null,
+  ].filter(Boolean) as Array<{ id: string; name: string; logo: string; provider: 'stripe' | 'paystack' | 'paypal' }>;
 
   if (isSuccess) {
     return (
@@ -417,9 +445,16 @@ export default function CheckoutPage() {
                   </div>
                   <button 
                     onClick={async () => {
+                      setPaymentError(null);
                       setIsProcessing(true);
-                      const order = await createBaseOrder();
-                      await handlePaystackPayment(order);
+                      try {
+                        const order = await createBaseOrder();
+                        await handlePaystackPayment(order);
+                      } catch (err: any) {
+                        const msg = err?.message || 'Unable to start Paystack checkout. Please try again.';
+                        setPaymentError(msg);
+                        setIsProcessing(false);
+                      }
                     }}
                     disabled={isProcessing || !email || !firstName}
                     className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/25 hover:bg-red-600 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
@@ -429,8 +464,8 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              {paymentMethod === 'paypal' && paymentSettings.paypalClientId && (
-                <PayPalScriptProvider options={{ clientId: paymentSettings.paypalClientId, currency: currency.toUpperCase() }}>
+              {paymentMethod === 'paypal' && paymentSettings.providers.paypal.enabled && paymentSettings.providers.paypal.clientId && (
+                <PayPalScriptProvider options={{ clientId: paymentSettings.providers.paypal.clientId, currency: currency.toUpperCase() }}>
                   <div className="space-y-4">
                     <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest text-center">Complete purchase via PayPal</p>
                     <PayPalButtons 

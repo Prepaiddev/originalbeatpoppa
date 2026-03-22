@@ -32,10 +32,13 @@ export default function AdminPaymentSettingsPage() {
 
   const [paymentSettings, setPaymentSettings] = useState<any>({
     provider: 'stripe',
-    public_key: '',
-    secret_key: '',
+    currency: 'USD',
+    providers: {
+      stripe: { enabled: true, public_key: '', secret_key: '', webhook_secret: '' },
+      paystack: { enabled: true, public_key: '', secret_key: '' },
+      paypal: { enabled: true, client_id: '', secret_key: '', mode: 'sandbox' },
+    },
     commission_percentage: 10.00,
-    paypal_mode: 'sandbox',
     paypal_payouts_enabled: false
   });
 
@@ -53,6 +56,76 @@ export default function AdminPaymentSettingsPage() {
   });
 
   const [newCurrency, setNewCurrency] = useState({ code: '', symbol: '', rate: '', name: '', region: '' });
+
+  const normalizePaymentConfig = (raw: any) => {
+    if (raw?.providers) {
+      return {
+        provider: raw?.provider || 'stripe',
+        currency: raw?.currency || 'USD',
+        providers: {
+          stripe: {
+            enabled: raw?.providers?.stripe?.enabled ?? true,
+            public_key: raw?.providers?.stripe?.public_key || '',
+            secret_key: raw?.providers?.stripe?.secret_key || '',
+            webhook_secret: raw?.providers?.stripe?.webhook_secret || '',
+          },
+          paystack: {
+            enabled: raw?.providers?.paystack?.enabled ?? true,
+            public_key: raw?.providers?.paystack?.public_key || '',
+            secret_key: raw?.providers?.paystack?.secret_key || '',
+          },
+          paypal: {
+            enabled: raw?.providers?.paypal?.enabled ?? true,
+            client_id: raw?.providers?.paypal?.client_id || '',
+            secret_key: raw?.providers?.paypal?.secret_key || '',
+            mode: raw?.providers?.paypal?.mode === 'live' ? 'live' : 'sandbox',
+          },
+        },
+        commission_percentage: typeof raw?.commission_percentage === 'number' ? raw.commission_percentage : 10.0,
+        paypal_payouts_enabled: !!raw?.paypal_payouts_enabled,
+      };
+    }
+
+    const provider = raw?.provider || 'stripe';
+    const publicKey = raw?.public_key || '';
+    const secretKey = raw?.secret_key || '';
+
+    return {
+      provider,
+      currency: raw?.currency || 'USD',
+      providers: {
+        stripe: {
+          enabled: true,
+          public_key: provider === 'stripe' ? publicKey : '',
+          secret_key: provider === 'stripe' ? secretKey : '',
+          webhook_secret: '',
+        },
+        paystack: {
+          enabled: true,
+          public_key: provider === 'paystack' ? publicKey : '',
+          secret_key: provider === 'paystack' ? secretKey : '',
+        },
+        paypal: {
+          enabled: true,
+          client_id: provider === 'paypal' ? publicKey : '',
+          secret_key: provider === 'paypal' ? secretKey : '',
+          mode: raw?.paypal_mode === 'live' ? 'live' : 'sandbox',
+        },
+      },
+      commission_percentage: typeof raw?.commission_percentage === 'number' ? raw.commission_percentage : 10.0,
+      paypal_payouts_enabled: !!raw?.paypal_payouts_enabled,
+    };
+  };
+
+  const setProviderEnabled = (prov: 'stripe' | 'paystack' | 'paypal', enabled: boolean) => {
+    setPaymentSettings((prev: any) => {
+      const providers = prev?.providers || {};
+      const nextProviders = { ...providers, [prov]: { ...providers[prov], enabled } };
+      const enabledCount = ['stripe', 'paystack', 'paypal'].filter((p) => !!nextProviders?.[p]?.enabled).length;
+      if (enabledCount === 0) return prev;
+      return { ...prev, providers: nextProviders };
+    });
+  };
 
   useEffect(() => {
     if (!authLoading && (!user || profile?.role !== 'admin')) {
@@ -73,7 +146,7 @@ export default function AdminPaymentSettingsPage() {
           const paymentData = data.find(item => item.key === 'payment_config')?.value;
           const currencyData = data.find(item => item.key === 'currency_settings')?.value;
 
-          if (paymentData) setPaymentSettings(paymentData);
+          if (paymentData) setPaymentSettings(normalizePaymentConfig(paymentData));
           if (currencyData) setCurrencySettings(currencyData);
         }
       } catch (error) {
@@ -283,6 +356,20 @@ export default function AdminPaymentSettingsPage() {
               </div>
 
               <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {(['stripe', 'paystack', 'paypal'] as const).map((prov) => (
+                    <label key={prov} className="flex items-center gap-3 px-5 py-4 bg-zinc-950 border border-zinc-800 rounded-2xl">
+                      <input
+                        type="checkbox"
+                        checked={!!paymentSettings?.providers?.[prov]?.enabled}
+                        onChange={(e) => setProviderEnabled(prov, e.target.checked)}
+                        className="w-5 h-5 rounded border-zinc-800 bg-zinc-900 text-primary focus:ring-primary"
+                      />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">{prov} enabled</span>
+                    </label>
+                  ))}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-4">
@@ -290,8 +377,31 @@ export default function AdminPaymentSettingsPage() {
                     </label>
                     <input 
                       type="text" 
-                      value={paymentSettings.public_key}
-                      onChange={(e) => setPaymentSettings({...paymentSettings, public_key: e.target.value})}
+                      value={
+                        paymentSettings.provider === 'paypal'
+                          ? (paymentSettings?.providers?.paypal?.client_id || '')
+                          : (paymentSettings?.providers?.[paymentSettings.provider]?.public_key || '')
+                      }
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (paymentSettings.provider === 'paypal') {
+                          setPaymentSettings({
+                            ...paymentSettings,
+                            providers: {
+                              ...paymentSettings.providers,
+                              paypal: { ...paymentSettings.providers.paypal, client_id: next }
+                            }
+                          });
+                        } else {
+                          setPaymentSettings({
+                            ...paymentSettings,
+                            providers: {
+                              ...paymentSettings.providers,
+                              [paymentSettings.provider]: { ...paymentSettings.providers[paymentSettings.provider], public_key: next }
+                            }
+                          });
+                        }
+                      }}
                       placeholder={paymentSettings.provider === 'paypal' ? 'Enter Client ID' : `${paymentSettings.provider}_public_key`}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-4 px-6 text-white font-bold focus:border-primary outline-none transition-all text-sm font-mono"
                     />
@@ -302,8 +412,31 @@ export default function AdminPaymentSettingsPage() {
                     </label>
                     <input 
                       type="password" 
-                      value={paymentSettings.secret_key}
-                      onChange={(e) => setPaymentSettings({...paymentSettings, secret_key: e.target.value})}
+                      value={
+                        paymentSettings.provider === 'paypal'
+                          ? (paymentSettings?.providers?.paypal?.secret_key || '')
+                          : (paymentSettings?.providers?.[paymentSettings.provider]?.secret_key || '')
+                      }
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (paymentSettings.provider === 'paypal') {
+                          setPaymentSettings({
+                            ...paymentSettings,
+                            providers: {
+                              ...paymentSettings.providers,
+                              paypal: { ...paymentSettings.providers.paypal, secret_key: next }
+                            }
+                          });
+                        } else {
+                          setPaymentSettings({
+                            ...paymentSettings,
+                            providers: {
+                              ...paymentSettings.providers,
+                              [paymentSettings.provider]: { ...paymentSettings.providers[paymentSettings.provider], secret_key: next }
+                            }
+                          });
+                        }
+                      }}
                       placeholder="••••••••••••••••"
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-4 px-6 text-white font-bold focus:border-primary outline-none transition-all text-sm font-mono"
                     />
@@ -315,8 +448,14 @@ export default function AdminPaymentSettingsPage() {
                     <div className="space-y-3">
                       <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-4">PayPal Mode</label>
                       <select 
-                        value={paymentSettings.paypal_mode || 'sandbox'}
-                        onChange={(e) => setPaymentSettings({...paymentSettings, paypal_mode: e.target.value})}
+                        value={paymentSettings?.providers?.paypal?.mode || 'sandbox'}
+                        onChange={(e) => setPaymentSettings({
+                          ...paymentSettings,
+                          providers: {
+                            ...paymentSettings.providers,
+                            paypal: { ...paymentSettings.providers.paypal, mode: e.target.value }
+                          }
+                        })}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl py-4 px-6 text-white font-bold focus:border-primary outline-none appearance-none text-sm"
                       >
                         <option value="sandbox">Sandbox (Testing)</option>

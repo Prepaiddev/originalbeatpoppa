@@ -3,8 +3,6 @@
 import Header from '@/components/Header';
 import { Tag, Plus, Trash2, Check, X, Search, Calendar, Hash, Percent, AlertCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useUIStore } from '@/store/useUIStore';
-import { supabase } from '@/lib/supabase/client';
 import StatusModal from '@/components/StatusModal';
 import clsx from 'clsx';
 import { format } from 'date-fns';
@@ -37,13 +35,10 @@ export default function AdminCouponsPage() {
   async function fetchCoupons() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('coupons')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setCoupons(data || []);
+      const res = await fetch('/api/admin/coupons', { method: 'GET' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to fetch coupons');
+      setCoupons(json?.coupons || []);
     } catch (error) {
       console.error('Error fetching coupons:', error);
     } finally {
@@ -57,17 +52,19 @@ export default function AdminCouponsPage() {
 
     try {
       setLoading(true);
-      const { error } = await supabase
-        .from('coupons')
-        .insert({
-          code: newCoupon.code.toUpperCase(),
+      const res = await fetch('/api/admin/coupons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: newCoupon.code,
           discount_percent: newCoupon.discount_percent,
           expires_at: newCoupon.expires_at || null,
           max_uses: newCoupon.max_uses ? parseInt(newCoupon.max_uses) : null,
           description: newCoupon.description
-        });
-
-      if (error) throw error;
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to create coupon');
 
       setStatusModal({
         isOpen: true,
@@ -102,12 +99,13 @@ export default function AdminCouponsPage() {
 
   const toggleStatus = async (id: string, currentStatus: boolean) => {
     try {
-      const { error } = await supabase
-        .from('coupons')
-        .update({ is_active: !currentStatus })
-        .eq('id', id);
-
-      if (error) throw error;
+      const res = await fetch(`/api/admin/coupons/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentStatus })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to update coupon');
       setCoupons(coupons.map(c => c.id === id ? { ...c, is_active: !currentStatus } : c));
     } catch (error) {
       console.error('Error toggling coupon status:', error);
@@ -118,12 +116,9 @@ export default function AdminCouponsPage() {
     if (!confirm('Are you sure you want to delete this coupon?')) return;
 
     try {
-      const { error } = await supabase
-        .from('coupons')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      const res = await fetch(`/api/admin/coupons/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to delete coupon');
       setCoupons(coupons.filter(c => c.id !== id));
     } catch (error) {
       console.error('Error deleting coupon:', error);
